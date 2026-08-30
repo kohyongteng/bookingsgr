@@ -616,7 +616,7 @@ app.get('/api/whatsapp-status', requireAuth, async (req, res) => {
   try {
     const output = await runPm2Command('pm2 jlist');
     const list = JSON.parse(output);
-    const proc = list.find((p) => p.name === 'whatsapp-bot');
+    const proc = list.find((p) => p.name === 'whatsapp-bot-v2');
     if (!proc) {
       return res.json({ found: false, running: false });
     }
@@ -632,7 +632,7 @@ app.post('/api/whatsapp-toggle', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'action must be "start" or "stop"' });
   }
   try {
-    await runPm2Command(`pm2 ${action} whatsapp-bot`);
+    await runPm2Command(`pm2 ${action} whatsapp-bot-v2`);
     res.json({ status: 'ok', action });
   } catch (err) {
     res.status(500).json({ error: err.message });
