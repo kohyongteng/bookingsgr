@@ -14,6 +14,9 @@ whatsapp-bot/auth_info_baileys/
 # --- Shared live data (bookings.db has guest PII, wa-outbox is a transient queue) ---
 shared-data/
 
+# --- Full backup zips (contain real credentials + guest data, see backup-full.js) ---
+backups/
+
 # --- Live operational state (regenerated at runtime, not source) ---
 bookings-dashboard/users.json
 guest-passcode/devices.json
