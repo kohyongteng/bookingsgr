@@ -1,4 +1,4 @@
-﻿const { google } = require('googleapis');
+const { google } = require('googleapis');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
@@ -233,7 +233,7 @@ function saveLastCheckDate(date) {
 async function runOnce(mode) {
   if (fs.existsSync(BLOCKED_FLAG_PATH)) {
     console.log(
-      `[${new Date().toISOString()}] blocked.flag present â€” skipping this run. ` +
+      `[${new Date().toISOString()}] blocked.flag present — skipping this run. ` +
       `Log back into the Chrome window on the mini PC, then delete blocked.flag to resume.`
     );
     return;
@@ -298,7 +298,7 @@ async function runOnce(mode) {
     }
 
     if (result.status === 'BLOCKED' || result.status === 'LOGIN_REQUIRED') {
-      console.error(`STOPPING: ${result.status} â€” ${result.message}`);
+      console.error(`STOPPING: ${result.status} — ${result.message}`);
       fs.writeFileSync(BLOCKED_FLAG_PATH, new Date().toISOString());
       try {
         await sendAlertEmail(
@@ -326,7 +326,7 @@ async function runOnce(mode) {
     const status = b.type === 'MODIFIED' ? 'modified' : 'new';
     saveBooking(db, b.bookingNumber, status, result);
     processed++;
-    console.log(`Saved ${b.bookingNumber} â€” ${result.guestName} (${result.roomType})`);
+    console.log(`Saved ${b.bookingNumber} — ${result.guestName} (${result.roomType})`);
   }
 
   db.close();
@@ -343,7 +343,7 @@ async function runOnce(mode) {
 const mode = process.argv.includes('--mode=live') ? 'live' : 'backfill';
 
 if (mode === 'live') {
-  console.log(`Starting live mode â€” checking every ${LIVE_POLL_INTERVAL_MS / 60000} minutes.`);
+  console.log(`Starting live mode — checking every ${LIVE_POLL_INTERVAL_MS / 60000} minutes.`);
   runOnce('live').catch((err) => console.error('Cycle error:', err));
   setInterval(() => {
     runOnce('live').catch((err) => console.error('Cycle error:', err));

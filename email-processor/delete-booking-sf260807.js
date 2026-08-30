@@ -1,4 +1,4 @@
-﻿// delete-booking-sf260807.js
+// delete-booking-sf260807.js
 //
 // Directly deletes the confirmed-orphaned SF260807 stub (NOT SF260807A -
 // that one is the real, correct booking and must not be touched).

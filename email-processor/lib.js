@@ -1,4 +1,4 @@
-﻿const { google } = require('googleapis');
+const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
@@ -123,7 +123,7 @@ async function listAllMessages(gmail, q) {
   return messages;
 }
 
-// Phase A â€” cheap check using ONLY the subject line (no body download needed).
+// Phase A — cheap check using ONLY the subject line (no body download needed).
 // Returns null if this email is irrelevant (unknown type or already in the past).
 function parseSubjectOnly(msg, cutoffDate) {
   const headers = msg.payload.headers;
@@ -162,7 +162,7 @@ function buildBookingLink(bookingNumber) {
   return `https://admin.booking.com/hotel/hoteladmin/extranet_ng/manage/booking.html?res_id=${bookingNumber}&hotel_id=${HOTEL_ID_CONSTANT}&lang=en-us`;
 }
 
-// Phase B â€” only called for messages that survived parseSubjectOnly.
+// Phase B — only called for messages that survived parseSubjectOnly.
 // Needs the full body to extract the booking link or (for cancellations) guest name.
 function parseBody(candidate, fullMsg) {
   const bookingLink = buildBookingLink(candidate.bookingNumber);
@@ -454,13 +454,13 @@ const AIRBNB_ROOM_MAP = {
 
 function airbnbExtractRoomNumber(text) {
   // The room number tag "#NN" is always the first thing on its own line
-  // (optionally preceded by a short "BH01 Â· " prefix), regardless of whatever
+  // (optionally preceded by a short "BH01 · " prefix), regardless of whatever
   // descriptive text follows - which the host can rename anytime. Anchoring to
   // line position rather than nearby keywords makes this resilient to that.
   const lines = text.split('\n');
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    const match = line.match(/^(?:[A-Za-z]{2}\d+\s*[Â·â€¢\-]?\s*)?#(\d{1,2})(?:[^\d]|$)/);
+    const match = line.match(/^(?:[A-Za-z]{2}\d+\s*[·•\-]?\s*)?#(\d{1,2})(?:[^\d]|$)/);
     if (match) return match[1].padStart(2, '0');
   }
   return null;
@@ -741,7 +741,7 @@ function buildEventPrefix(booking) {
 function buildEventTitle(booking, dayNumber, totalNights) {
   const effectiveCategory = booking.room_override || booking.room_category;
   const prefix = buildEventPrefix(booking);
-  const star = effectiveCategory === 'Double Bedroom' ? ' â­' : '';
+  const star = effectiveCategory === 'Double Bedroom' ? ' ⭐' : '';
   const initials = getInitials(booking.guest_name);
   const roomTag = booking.platform !== 'airbnb' && booking.room_number ? ` (${booking.room_number})` : '';
   return `${prefix}${star} ${initials}${roomTag} (Day ${dayNumber}/${totalNights})`;
@@ -964,9 +964,9 @@ function composeCheckoutReport(db, todayIso) {
     lines.push('No check-outs tomorrow.');
   }
   unassigned.forEach((b) => {
-    lines.push(`âš  ${b.booking_number} not yet assigned - check dashboard`);
+    lines.push(`⚠ ${b.booking_number} not yet assigned - check dashboard`);
   });
-  lines.push('Tolong bersih. Thank you ðŸ‘ðŸ™');
+  lines.push('Tolong bersih. Thank you 👍🙏');
   lines.push(`Lusa ${dayAfterCount} check out. (bot)`);
 
   return lines.join('\n');

@@ -1,4 +1,4 @@
-﻿const db = require('better-sqlite3')('C:\\apps\\shared-data\\bookings.db');
+const db = require('better-sqlite3')('C:\\apps\\shared-data\\bookings.db');
 
 console.log("=== Booking.com rows with check-in around Aug 1-2 ===");
 const bk = db.prepare("SELECT booking_number, guest_name, check_in, check_out FROM bookings WHERE platform = 'booking.com' AND status != 'cancelled' AND (check_in LIKE '%Aug 1,%' OR check_in LIKE '%Aug 2,%')").all();

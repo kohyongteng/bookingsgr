@@ -1,4 +1,4 @@
-﻿const db = require('better-sqlite3')('C:\\apps\\shared-data\\bookings.db');
+const db = require('better-sqlite3')('C:\\apps\\shared-data\\bookings.db');
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 

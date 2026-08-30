@@ -1,4 +1,4 @@
-﻿// check-booking-sf260807.js
+// check-booking-sf260807.js
 //
 // Prints the raw, current DB row for one booking, so we can see exactly
 // what's actually stored (vs. guessing from the dashboard UI or an old
