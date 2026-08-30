@@ -1056,13 +1056,25 @@ document.getElementById('togglePendingListBtn').addEventListener('click', () => 
 document.getElementById('syncNowBtn').addEventListener('click', async () => {
   const btn = document.getElementById('syncNowBtn');
   btn.disabled = true;
-  await api('/api/sync-now', { method: 'POST' });
-  pollSyncStatus();
+  try {
+    await api('/api/sync-now', { method: 'POST' });
+    pollSyncStatus();
+  } catch (err) {
+    // On a 401, api() already shows the login screen - the button just
+    // needs to be re-enabled so it isn't permanently stuck after login,
+    // which previously made repeated clicks look like sync was hanging.
+    if (err.message !== 'Not logged in') alert('Failed to start sync: ' + err.message);
+    btn.disabled = false;
+  }
 });
 
 document.getElementById('clearErrorsBtn').addEventListener('click', async () => {
-  await api('/api/clear-errors', { method: 'POST' });
-  loadPendingStatus();
+  try {
+    await api('/api/clear-errors', { method: 'POST' });
+    loadPendingStatus();
+  } catch (err) {
+    if (err.message !== 'Not logged in') alert('Failed to clear errors: ' + err.message);
+  }
 });
 
 document.getElementById('sendCheckoutReportBtn').addEventListener('click', async () => {
@@ -1086,7 +1098,18 @@ function pollSyncStatus() {
   const btn = document.getElementById('syncNowBtn');
 
   syncPollTimer = setInterval(async () => {
-    const state = await api('/api/sync-status');
+    let state;
+    try {
+      state = await api('/api/sync-status');
+    } catch (err) {
+      // Session expired mid-sync (api() already showed the login screen) -
+      // stop polling and release the button instead of retrying forever.
+      clearInterval(syncPollTimer);
+      syncPollTimer = null;
+      btn.disabled = false;
+      progressEl.style.display = 'none';
+      return;
+    }
     if (state.running) {
       progressEl.style.display = 'block';
       progressEl.textContent = 'Syncing... ' + state.processed + ' of ' + state.total + (state.currentBooking ? ' (current: ' + state.currentBooking + ')' : '');
