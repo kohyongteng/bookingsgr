@@ -534,6 +534,18 @@ function parseAirbnbCancellation(subject) {
   return { type: 'CANCELLED', confirmationCode: match[1] };
 }
 
+// Airbnb's own Terms-of-Service-violation cancellation ("we've canceled the
+// reservation and refunded payment") uses a different subject entirely -
+// "Reservation ABCDEFGH has been canceled" - where "ABCDEFGH" is a literal,
+// un-substituted placeholder (an Airbnb template bug), not the real code.
+// The real confirmation code only appears in the body, e.g. "...update
+// about reservation HMWK5AWS9Q. It looks like...".
+function parseAirbnbRiskCancellation(text) {
+  const match = text.match(/reservation\s+([A-Z0-9]{8,14})\b/);
+  if (!match) return null;
+  return { type: 'CANCELLED', confirmationCode: match[1] };
+}
+
 function parseAirbnbChangeRequest(subject, text, receivedDate) {
   const subjectMatch = subject.match(/^(.+) wants to change their reservation$/);
   if (!subjectMatch) return null;
@@ -1003,6 +1015,7 @@ module.exports = {
   clearAllErrors,
   parseAirbnbNewBooking,
   parseAirbnbCancellation,
+  parseAirbnbRiskCancellation,
   parseAirbnbChangeRequest,
   parseAirbnbUpdateConfirmed,
   saveAirbnbBooking,

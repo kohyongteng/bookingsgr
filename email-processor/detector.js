@@ -227,6 +227,21 @@ async function runAirbnbCycle() {
         continue;
       }
 
+      // Airbnb's Terms-of-Service-violation cancellation uses a different
+      // subject ("Reservation ABCDEFGH has been canceled") whose code is a
+      // placeholder - the real one only appears in the body (see
+      // parseAirbnbRiskCancellation).
+      if (/^Reservation .+ has been canceled$/i.test(subject)) {
+        const parsed = lib.parseAirbnbRiskCancellation(text);
+        if (parsed) {
+          lib.saveAirbnbCancellation(db, parsed.confirmationCode);
+          cancelledCount++;
+        } else {
+          console.log(`  WARNING: could not extract confirmation code from ToS-violation cancellation (subject: "${subject}") - skipping, needs manual check.`);
+        }
+        continue;
+      }
+
       if (subject.includes('wants to change their reservation')) {
         const parsed = lib.parseAirbnbChangeRequest(subject, text, receivedDate);
         if (parsed && parsed.type === 'CHANGE_REQUEST_DATES') {
