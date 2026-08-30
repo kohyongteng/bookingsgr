@@ -1,0 +1,14 @@
+{
+  "name": "tuya-checkout-scan",
+  "version": "1.0.0",
+  "description": "Scans Tuya AC/shower switches per unit to guess whether guests have checked out, alerts housekeeping via the whatsapp-bot outbox.",
+  "main": "checkout-switch-scan.js",
+  "scripts": {
+    "test-devices": "node test-device-status.js",
+    "start": "node checkout-switch-scan.js"
+  },
+  "dependencies": {
+    "@tuya/tuya-connector-nodejs": "^2.1.2",
+    "dotenv": "^17.4.2"
+  }
+}

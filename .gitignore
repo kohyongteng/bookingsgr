@@ -1,0 +1,50 @@
+# --- Dependencies (regenerable via npm install) ---
+**/node_modules/
+
+# --- Secrets ---
+**/.env
+!**/.env.example
+email-processor/credentials.json
+email-processor/token.json
+email-processor/token_airbnb.json
+
+# --- Live session / device-tied state (not portable, re-auth instead) ---
+whatsapp-bot/auth_info_baileys/
+
+# --- Shared live data (bookings.db has guest PII, wa-outbox is a transient queue) ---
+shared-data/
+
+# --- Live operational state (regenerated at runtime, not source) ---
+bookings-dashboard/users.json
+guest-passcode/devices.json
+guest-passcode/issued-codes.json
+tuya-auto/checkout-scan-state.json
+tuya-auto/health-check-state.json
+tuya-auto/unit-switches.json
+tuya-auto/unit-health-devices.json
+email-processor/pending_bookings.json
+email-processor/detector_last_check.json
+email-processor/detector_airbnb_last_check.json
+email-processor/auth_alert_last_sent.json
+email-processor/checkout_report_last_sent.json
+
+# --- One-off debug dumps from past troubleshooting (may contain real guest PII) ---
+email-processor/*.log
+email-processor/*-log*.txt
+email-processor/*-log*.txt
+email-processor/debug-*.html
+email-processor/debug-*.txt
+email-processor/fetch-*.txt
+email-processor/process-*.txt
+email-processor/process-truly-final*.txt
+email-processor/sample-*.txt
+email-processor/sample-*.ics
+email-processor/*-diagnosis.txt
+scraper-service/booking-*-page.txt
+
+# --- Stale manual export ---
+whatsapp-bot/whatsapp-bot.tar.gz
+
+# --- OS/editor noise ---
+Thumbs.db
+.DS_Store

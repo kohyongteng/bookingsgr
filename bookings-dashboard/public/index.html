@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Swiss Garden Bookings</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f4f5f7;
+    color: #1b2747;
+  }
+  header {
+    background: #003580;
+    color: white;
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 { font-size: 17px; margin: 0; }
+  header button {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  #whatsappToggleBtn { font-weight: 600; }
+
+  #syncBar {
+    background: #eef2fb;
+    border-bottom: 1px solid #d5deee;
+    padding: 10px 14px;
+    position: sticky;
+    top: 49px;
+    z-index: 9;
+    font-size: 13px;
+  }
+  #syncBar.hasError { background: #fdecea; border-bottom-color: #e6a19a; }
+  .sync-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .sync-count { font-weight: 600; }
+  .sync-count.zero { color: #667; font-weight: 400; }
+  #syncBar.hasError .sync-count { color: #c0392b; }
+  .sync-actions { display: flex; gap: 6px; }
+  .sync-actions button {
+    font-size: 12px; padding: 6px 10px; border-radius: 6px; border: none; font-weight: 600;
+  }
+  #syncNowBtn { background: #003580; color: white; }
+  #syncNowBtn:disabled { background: #99a; color: #eee; }
+  #clearErrorsBtn { background: #c0392b; color: white; }
+  #togglePendingListBtn { background: none; color: #003580; text-decoration: underline; font-weight: 400; padding: 4px; }
+  .sync-progress { font-size: 12px; color: #556; margin-top: 4px; }
+  #pendingList { margin-top: 8px; display: none; }
+  #pendingList.open { display: block; }
+  .pending-item {
+    background: white; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .pending-item .pi-main { font-weight: 600; }
+  .pending-item .pi-sub { color: #667; font-size: 11px; margin-top: 2px; }
+  .pending-item.failed { border-left: 3px solid #c0392b; }
+  .pi-badge { font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: 700; }
+  .pi-badge.NEW { background: #e3f2fd; color: #1565c0; }
+  .pi-badge.MODIFIED { background: #fff3e0; color: #e65100; }
+  .pi-badge.CANCELLED { background: #eee; color: #666; }
+
+  .tabs {
+    display: flex;
+    background: white;
+    border-bottom: 1px solid #ddd;
+    position: sticky;
+    top: 0;
+    z-index: 8;
+  }
+  .tabs button {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    background: none;
+    font-size: 14px;
+    font-weight: 600;
+    color: #667;
+    border-bottom: 3px solid transparent;
+  }
+  .tabs button.active { color: #003580; border-bottom-color: #003580; }
+  .content { padding: 12px; padding-bottom: 80px; }
+
+  #loginScreen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    padding: 20px;
+  }
+  #loginScreen form {
+    background: white;
+    padding: 28px 24px;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 340px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  #loginScreen h2 { margin-top: 0; font-size: 18px; }
+  #loginScreen input {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 15px;
+  }
+  #loginScreen button {
+    width: 100%;
+    padding: 12px;
+    background: #003580;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  #loginError { color: #c0392b; font-size: 13px; margin-bottom: 8px; }
+
+  .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .cal-header button { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 8px 12px; font-size: 15px; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal-daylabel { text-align: center; font-size: 11px; color: #889; padding: 4px 0; }
+  .cal-cell {
+    min-height: 68px;
+    background: white;
+    border-radius: 8px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    font-size: 11px;
+    border: 1px solid #eee;
+  }
+  .cal-cell.empty { background: transparent; border: none; }
+  .cal-cell .daynum { font-weight: 600; font-size: 12px; }
+  .cal-cell .occ { font-size: 10px; color: #567; }
+  .cal-cell .breakdown-row { font-size: 8px; color: #99a; margin-top: 1px; white-space: nowrap; }
+  .cal-cell.full { background: #fdecea; border-color: #e6a19a; }
+  .cal-cell.full .occ { color: #c0392b; font-weight: 700; }
+  .cal-cell.today { border: 2px solid #003580; }
+
+  .list-row {
+    background: white;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .list-row.full { background: #fdecea; }
+  .list-row .date { font-weight: 600; font-size: 14px; }
+  .list-row .sub { font-size: 12px; color: #667; }
+  .flag { color: #c0392b; font-weight: 700; font-size: 12px; }
+
+  #dayPanel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: white;
+    border-radius: 16px 16px 0 0;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 -2px 16px rgba(0,0,0,0.15);
+    padding: 16px;
+    display: none;
+    z-index: 20;
+  }
+  #dayPanel.open { display: block; }
+  #dayPanelOverlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.3);
+    display: none; z-index: 19;
+  }
+  #dayPanelOverlay.open { display: block; }
+  .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .panel-header h3 { margin: 0; font-size: 16px; }
+  .panel-header button { background: none; border: none; font-size: 20px; color: #889; }
+
+  .group-heading {
+    font-weight: 700; font-size: 13px; color: #556; margin: 14px 0 6px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .group-heading:first-child { margin-top: 0; }
+
+  .booking-card {
+    background: #f8f9fb;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .booking-card .name { font-weight: 600; }
+  .booking-card .stay-dates { font-weight: 400; font-size: 11px; color: #889; }
+  .booking-card .meta { color: #667; font-size: 12px; margin-top: 2px; }
+  .booking-card .stay-status { font-weight: 600; color: #003580; }
+  .booking-card .booking-num { font-size: 10px; color: #aab; margin-top: 1px; }
+  .booking-card .room-override { font-weight: 700; color: #b8860b; }
+  .booking-card .assigned-room { font-weight: 600; color: #227722; }
+  .booking-card .unassigned-room { font-weight: 600; color: #c0392b; }
+  .booking-card textarea {
+    width: 100%; margin-top: 6px; border: 1px solid #ddd; border-radius: 6px;
+    padding: 6px; font-size: 12px; resize: vertical; min-height: 32px;
+  }
+  .booking-card .actions { margin-top: 6px; display: flex; gap: 6px; }
+  .booking-card .actions button {
+    font-size: 11px; padding: 4px 8px; border-radius: 6px; border: 1px solid #ccc; background: white;
+  }
+
+  #addBtn {
+    position: fixed; bottom: 20px; right: 20px;
+    width: 52px; height: 52px; border-radius: 50%;
+    background: #003580; color: white; font-size: 26px;
+    border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    z-index: 15;
+  }
+
+  #bookingFormOverlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; z-index: 29;
+  }
+  #bookingFormOverlay.open { display: block; }
+  #bookingForm {
+    position: fixed; top: 4%; left: 4%; right: 4%; bottom: 4%;
+    background: white; border-radius: 12px; display: none; z-index: 30;
+    overflow-y: auto; box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+  }
+  #bookingForm.open { display: block; }
+  .booking-form-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px; border-bottom: 1px solid #eee; background: #f8f9fb;
+    position: sticky; top: 0;
+  }
+  .booking-form-header h4 { margin: 0; font-size: 16px; }
+  .booking-form-header button { background: none; border: none; font-size: 20px; color: #889; }
+  .booking-form-body { padding: 16px; }
+  #bookingForm label { display: block; font-size: 12px; color: #667; margin: 8px 0 4px; }
+  #bookingForm input, #bookingForm select, #bookingForm textarea {
+    width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px;
+  }
+  #bookingForm .save-btn {
+    width: 100%; margin-top: 14px; padding: 12px; background: #003580; color: white;
+    border: none; border-radius: 8px; font-weight: 600;
+  }
+
+  /* Invoice modal */
+  .inv-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; z-index: 29;
+  }
+  .inv-overlay.open { display: block; }
+  .inv-modal {
+    position: fixed; top: 3%; left: 3%; right: 3%; bottom: 3%;
+    background: white; border-radius: 12px; display: none; z-index: 30;
+    overflow: hidden; flex-direction: column;
+  }
+  .inv-modal.open { display: flex; }
+  .inv-modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px; border-bottom: 1px solid #eee; background: #f8f9fb;
+  }
+  .inv-modal-header h3 { margin: 0; font-size: 16px; }
+  .inv-modal-header button { background: none; border: none; font-size: 20px; color: #889; }
+  .inv-modal-body { display: flex; flex: 1; overflow: hidden; }
+  .inv-form {
+    width: 300px; min-width: 260px; padding: 14px; overflow-y: auto; border-right: 1px solid #eee;
+    background: #fafbfc;
+  }
+  .inv-form label { display: block; font-size: 11px; color: #667; margin: 8px 0 3px; font-weight: 600; }
+  .inv-form input, .inv-form select, .inv-form textarea {
+    width: 100%; padding: 7px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px;
+  }
+  .inv-toggle { display: flex; border: 1px solid #ccc; border-radius: 6px; overflow: hidden; }
+  .inv-toggle button {
+    flex: 1; padding: 8px; border: none; background: white; font-size: 12px; font-weight: 600; color: #667;
+  }
+  .inv-toggle button.active { background: #003580; color: white; }
+  .inv-preview-wrap { flex: 1; overflow-y: auto; padding: 20px; background: #e8e9ec; }
+
+  /* Invoice document itself - mirrors the original template design */
+  .inv-preview {
+    background: white; max-width: 780px; margin: 0 auto; padding: 40px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15); font-family: Georgia, 'Times New Roman', serif;
+    color: #1a1a1a; position: relative;
+  }
+  .inv-header { text-align: center; border-bottom: 1px solid #eee; padding-bottom: 14px; margin-bottom: 14px; }
+  .inv-header h1 { font-size: 34px; color: #1a448a; margin: 0; font-weight: 700; }
+  .inv-header p { font-size: 10px; color: #2d579c; font-weight: 700; letter-spacing: 1px; margin: 3px 0 0; text-transform: uppercase; }
+  .inv-subheader { display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 16px; }
+  .inv-subheader .prop-info { color: #1a448a; line-height: 1.5; }
+  .inv-subheader .prop-info h2 { font-size: 13px; margin: 0 0 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .inv-subheader .prop-info p { margin: 0; color: #444; font-weight: 500; }
+  .inv-doc-title { text-align: right; }
+  .inv-doc-title h2 { font-size: 22px; color: #112d60; margin: 0 0 8px; text-transform: uppercase; font-weight: 900; }
+  .inv-doc-title .row { display: flex; justify-content: flex-end; gap: 8px; font-size: 12px; font-weight: 600; }
+  .inv-doc-title .row .label { color: #888; font-size: 10px; text-transform: uppercase; }
+  .inv-meta {
+    display: flex; gap: 24px; border-top: 1px solid #999; border-bottom: 1px solid #999;
+    padding: 10px 0; margin-bottom: 16px; font-size: 12px;
+  }
+  .inv-meta > div { flex: 1; }
+  .inv-meta h3 { font-size: 10px; text-transform: uppercase; margin: 0 0 5px; letter-spacing: 0.5px; }
+  .inv-meta .guest-name { font-weight: 700; text-transform: uppercase; }
+  .inv-meta .contact-block { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #ccc; font-size: 11px; white-space: pre-line; }
+  .inv-meta .contact-label { color: #999; text-transform: uppercase; font-size: 10px; display: block; }
+  .inv-meta .room-label { color: #444; font-size: 11px; }
+  table.inv-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 16px; }
+  table.inv-table th, table.inv-table td { border: 1px solid #333; padding: 8px; text-align: center; }
+  table.inv-table th { text-transform: uppercase; font-size: 9px; background: #f7f7f7; }
+  table.inv-table td.amt { text-align: right; padding-right: 12px; font-family: monospace; }
+  table.inv-table tr.empty td { height: 26px; }
+  table.inv-table tr.total-row td { font-weight: 900; font-size: 13px; background: #f0f0f0; border-width: 2px; }
+  table.inv-table tr.fee-row td.label { text-align: right; font-weight: 700; font-size: 10px; text-transform: uppercase; color: #444; }
+  .inv-footer { font-size: 11px; font-style: italic; color: #333; margin-top: 10px; }
+  .inv-footer .remark { color: #888; font-size: 10px; margin-top: 6px; border-top: 1px dotted #ccc; padding-top: 6px; }
+  .inv-thanks {
+    text-align: center; font-size: 11px; font-weight: 800; color: #1a448a; text-transform: uppercase;
+    letter-spacing: 1px; margin-top: 18px; padding-top: 12px; border-top: 1px solid #eee;
+  }
+  .inv-paid-stamp-below {
+    display: block; text-align: right; margin: 10px 0;
+  }
+  .inv-paid-stamp-below span {
+    display: inline-block; transform: rotate(-8deg);
+    border: 3px double #c0392b; border-radius: 8px; padding: 6px 20px;
+    color: #c0392b; font-size: 20px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px;
+  }
+
+  @media print {
+    body * { visibility: hidden; }
+    .inv-preview, .inv-preview * { visibility: visible; }
+    .inv-preview { position: absolute; top: 0; left: 0; box-shadow: none; margin: 0; width: 100%; }
+    .inv-overlay, .inv-modal-header, .inv-form, .inv-preview-wrap { background: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <form id="loginForm">
+    <h2>Swiss Garden Bookings</h2>
+    <div id="loginError"></div>
+    <input type="text" id="loginUsername" placeholder="Username" autocomplete="username" />
+    <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" />
+    <button type="submit">Log in</button>
+  </form>
+</div>
+
+<div id="app" style="display:none;">
+  <header>
+    <h1>Swiss Garden Bookings</h1>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <button id="whatsappToggleBtn">WhatsApp: ...</button>
+      <button id="logoutBtn">Logout</button>
+    </div>
+  </header>
+
+  <div id="syncBar">
+    <div class="sync-row">
+      <div><span id="syncCountText" class="sync-count">Checking...</span></div>
+      <div class="sync-actions">
+        <button id="togglePendingListBtn">Details</button>
+        <button id="clearErrorsBtn" style="display:none;">Clear Error</button>
+        <button id="syncNowBtn">Sync Now</button>
+        <button id="sendCheckoutReportBtn" style="background:#227722; color:white;">Send Checkout Report</button>
+      </div>
+    </div>
+    <div id="syncProgressText" class="sync-progress" style="display:none;"></div>
+    <div id="pendingList"></div>
+  </div>
+
+  <div class="tabs">
+    <button id="tabCalendar" class="active">Calendar</button>
+    <button id="tabList">Next 4 Weeks</button>
+  </div>
+  <div class="content">
+    <div id="calendarView">
+      <div class="cal-header">
+        <button id="prevMonth">‹</button>
+        <strong id="monthLabel"></strong>
+        <button id="nextMonth">›</button>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+    <div id="listView" style="display:none;"></div>
+  </div>
+  <button id="addBtn">+</button>
+</div>
+
+<div id="dayPanelOverlay"></div>
+<div id="dayPanel">
+  <div class="panel-header">
+    <h3 id="panelDate"></h3>
+    <div style="display:flex; align-items:center; gap:6px;">
+      <button id="autoAssignBtn" style="font-size:13px; background:#227722; color:white; padding:6px 10px; border-radius:6px;">Auto-assign rooms</button>
+      <button id="generatePasscodesBtn" style="font-size:13px; background:#7a4fb5; color:white; padding:6px 10px; border-radius:6px;">🔑 Generate Passcodes</button>
+      <button id="addOfflineBtn" style="font-size:13px; background:#003580; color:white; padding:6px 10px; border-radius:6px;">+ Offline</button>
+      <button id="closePanel">✕</button>
+    </div>
+  </div>
+  <div id="panelBookings"></div>
+</div>
+
+<div id="bookingFormOverlay"></div>
+<div id="bookingForm">
+  <div class="booking-form-header">
+    <h4 id="bookingFormTitle">Add / Edit Booking</h4>
+    <button type="button" id="closeBookingFormBtn">✕</button>
+  </div>
+  <div class="booking-form-body">
+  <input type="hidden" id="f_booking_number" />
+  <label>Guest name</label>
+  <input type="text" id="f_guest_name" />
+  <label>Room category</label>
+  <select id="f_room_category">
+    <option value="Normal Room">Normal Room</option>
+    <option value="Double Bedroom">Double Bedroom</option>
+    <option value="Small Room">Small Room</option>
+  </select>
+  <label>Room number (optional)</label>
+  <input type="text" id="f_room_number" placeholder="e.g. N1101" />
+  <label>Actual room (if different from booked - e.g. upgraded/moved)</label>
+  <select id="f_room_override">
+    <option value="">(none - use booked room)</option>
+    <option value="Normal Room">Normal Room</option>
+    <option value="Double Bedroom">Double Bedroom</option>
+    <option value="Small Room">Small Room</option>
+  </select>
+  <label>Check-in</label>
+  <input type="date" id="f_check_in" />
+  <label>Check-out</label>
+  <input type="date" id="f_check_out" />
+  <label>Assigned physical room <button type="button" id="refreshRoomsBtn" style="font-size:10px; padding:2px 6px; margin-left:4px;">Refresh</button></label>
+  <select id="f_assigned_room">
+    <option value="">(unassigned)</option>
+  </select>
+  <label>Status</label>
+  <select id="f_status">
+    <option value="new">New</option>
+    <option value="modified">Modified</option>
+    <option value="checked_in">Checked in</option>
+    <option value="cancelled">Cancelled</option>
+  </select>
+  <label>Notes (e.g. early check-in)</label>
+  <textarea id="f_notes" rows="3"></textarea>
+  <button class="save-btn" id="saveBookingBtn">Save</button>
+  </div>
+</div>
+
+<!-- Invoice Modal -->
+<div id="invoiceOverlay" class="inv-overlay"></div>
+<div id="invoiceModal" class="inv-modal">
+  <div class="inv-modal-header">
+    <h3>Generate Invoice</h3>
+    <button id="closeInvoiceModal">✕</button>
+  </div>
+
+  <div class="inv-modal-body">
+    <div class="inv-form">
+      <label>Document type</label>
+      <div class="inv-toggle">
+        <button type="button" id="inv_type_invoice" class="active">Invoice</button>
+        <button type="button" id="inv_type_booking">Booking Form</button>
+      </div>
+
+      <label>Name on invoice (editable - e.g. company name)</label>
+      <input type="text" id="inv_guest_name" />
+
+      <label>Guest ID number (optional)</label>
+      <input type="text" id="inv_id_number" placeholder="e.g. passport / IC number" />
+
+      <label>Guest contact (phone / address, optional)</label>
+      <textarea id="inv_phone" rows="2" placeholder="e.g. +60 12-345 6789, or company name + address"></textarea>
+
+      <label>Units</label>
+      <input type="number" id="inv_units" value="1" min="1" />
+
+      <label>Total price (MYR)</label>
+      <input type="number" id="inv_total_price" placeholder="e.g. 630.00" step="0.01" />
+
+      <label>Tourism fee (MYR)</label>
+      <input type="number" id="inv_tourism_fee" value="0" step="0.01" />
+
+      <label>Extra service (optional)</label>
+      <input type="text" id="inv_extra_name" placeholder="e.g. Late check-out charge" />
+      <input type="number" id="inv_extra_amount" placeholder="Amount (MYR)" step="0.01" style="margin-top:4px;" />
+
+      <label>Payment method</label>
+      <select id="inv_payment_method">
+        <option value="CASH">Cash upon arrival</option>
+        <option value="BOOKING_COM">Booking.com Platform</option>
+        <option value="AIRBNB">Airbnb Platform</option>
+        <option value="BANK_TRANSFER">Bank Transfer</option>
+      </select>
+
+      <label style="display:flex; align-items:center; gap:6px; margin-top:10px;">
+        <input type="checkbox" id="inv_is_paid" style="width:auto;" /> Mark as PAID
+      </label>
+
+      <label>Remarks (optional)</label>
+      <textarea id="inv_notes" rows="2"></textarea>
+
+      <button id="printInvoiceBtn" class="save-btn" style="margin-top:14px;">Print / Save as PDF</button>
+    </div>
+
+    <div class="inv-preview-wrap">
+      <div id="invoicePreview" class="inv-preview"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentUser = null;
+let viewDate = new Date();
+let selectedDate = null;
+let pendingListOpen = false;
+let syncPollTimer = null;
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+  });
+  if (res.status === 401) {
+    showLogin();
+    throw new Error('Not logged in');
+  }
+  return res.json();
+}
+
+function showLogin() {
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+function showApp() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+}
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('loginUsername').value;
+  const password = document.getElementById('loginPassword').value;
+  try {
+    const data = await api('/api/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+    currentUser = data.user;
+    showApp();
+    loadCalendar();
+    loadPendingStatus();
+  } catch (err) {
+    document.getElementById('loginError').textContent = 'Invalid username or password';
+  }
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await api('/api/logout', { method: 'POST' });
+  showLogin();
+});
+
+async function loadWhatsappStatus() {
+  try {
+    const data = await api('/api/whatsapp-status');
+    const btn = document.getElementById('whatsappToggleBtn');
+    if (!data.found) {
+      btn.textContent = 'WhatsApp: not found';
+      btn.disabled = true;
+      return;
+    }
+    btn.disabled = false;
+    btn.textContent = data.running ? 'WhatsApp: ON (tap to stop)' : 'WhatsApp: OFF (tap to start)';
+    btn.style.background = data.running ? '#2e7d32' : '#c0392b';
+  } catch (e) {
+    // ignore transient errors
+  }
+}
+
+document.getElementById('whatsappToggleBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('whatsappToggleBtn');
+  const isRunning = btn.textContent.includes('ON');
+  const action = isRunning ? 'stop' : 'start';
+  if (!confirm(`${action === 'stop' ? 'Stop' : 'Start'} the WhatsApp customer service bot?`)) return;
+  btn.disabled = true;
+  await api('/api/whatsapp-toggle', { method: 'POST', body: JSON.stringify({ action }) });
+  setTimeout(loadWhatsappStatus, 1500);
+});
+
+document.getElementById('tabCalendar').addEventListener('click', () => switchTab('calendar'));
+document.getElementById('tabList').addEventListener('click', () => switchTab('list'));
+
+function switchTab(tab) {
+  document.getElementById('tabCalendar').classList.toggle('active', tab === 'calendar');
+  document.getElementById('tabList').classList.toggle('active', tab === 'list');
+  document.getElementById('calendarView').style.display = tab === 'calendar' ? 'block' : 'none';
+  document.getElementById('listView').style.display = tab === 'list' ? 'block' : 'none';
+  if (tab === 'calendar') loadCalendar();
+  else loadList();
+}
+
+document.getElementById('prevMonth').addEventListener('click', () => {
+  viewDate.setMonth(viewDate.getMonth() - 1);
+  loadCalendar();
+});
+document.getElementById('nextMonth').addEventListener('click', () => {
+  viewDate.setMonth(viewDate.getMonth() + 1);
+  loadCalendar();
+});
+
+function isoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function formatStayDates(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return '';
+  const opts = { month: 'short', day: 'numeric' };
+  const inLabel = new Date(checkIn).toLocaleDateString('default', opts);
+  const outLabel = new Date(checkOut).toLocaleDateString('default', opts);
+  return `${inLabel} – ${outLabel}`;
+}
+
+async function loadCalendar() {
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const first = new Date(year, month, 1);
+  const last = new Date(year, month + 1, 0);
+  document.getElementById('monthLabel').textContent = first.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+  const data = await api(`/api/occupancy?start=${isoDate(first)}&end=${isoDate(last)}`);
+  const dayMap = {};
+  data.days.forEach(d => dayMap[d.date] = d);
+
+  const grid = document.getElementById('calGrid');
+  grid.innerHTML = '';
+  ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(l => {
+    const el = document.createElement('div');
+    el.className = 'cal-daylabel';
+    el.textContent = l;
+    grid.appendChild(el);
+  });
+
+  let startOffset = (first.getDay() + 6) % 7;
+  for (let i = 0; i < startOffset; i++) {
+    const el = document.createElement('div');
+    el.className = 'cal-cell empty';
+    grid.appendChild(el);
+  }
+
+  const todayStr = isoDate(new Date());
+  for (let d = 1; d <= last.getDate(); d++) {
+    const dateObj = new Date(year, month, d);
+    const dateStr = isoDate(dateObj);
+    const info = dayMap[dateStr] || { total: 0, capacity: data.totalCapacity, almostFull: false };
+    const cell = document.createElement('div');
+    cell.className = 'cal-cell' + (info.almostFull ? ' full' : '') + (dateStr === todayStr ? ' today' : '');
+    const platforms = info.byPlatform || { 'booking.com': 0, airbnb: 0, manual: 0 };
+    const cat = info.byCategory || {};
+    const small = cat['Small Room'] ? cat['Small Room'].occupied : 0;
+    const normal = cat['Normal Room'] ? cat['Normal Room'].occupied : 0;
+    const double = cat['Double Bedroom'] ? cat['Double Bedroom'].occupied : 0;
+
+    cell.innerHTML =
+      '<div class="daynum">' + d + '</div>' +
+      '<div class="occ">' + info.total + '/' + info.capacity + '</div>' +
+      '<div class="breakdown-row">B' + platforms['booking.com'] + ' A' + platforms.airbnb + ' O' + platforms.manual + '</div>' +
+      '<div class="breakdown-row">S' + small + ' N' + normal + ' D' + double + '</div>';
+    cell.addEventListener('click', () => openDayPanel(dateStr));
+    grid.appendChild(cell);
+  }
+}
+
+async function loadList() {
+  const today = new Date();
+  const end = new Date();
+  end.setDate(end.getDate() + 27);
+  const data = await api(`/api/occupancy?start=${isoDate(today)}&end=${isoDate(end)}`);
+  const container = document.getElementById('listView');
+  container.innerHTML = '';
+  data.days.forEach(d => {
+    const row = document.createElement('div');
+    row.className = 'list-row' + (d.almostFull ? ' full' : '');
+    const dateObj = new Date(d.date);
+    const label = dateObj.toLocaleDateString('default', { weekday: 'short', month: 'short', day: 'numeric' });
+    row.innerHTML = `
+      <div>
+        <div class="date">${label}</div>
+        <div class="sub">${d.total} / ${d.capacity} rooms booked</div>
+      </div>
+      ${d.almostFull ? '<div class="flag">⚠ ALMOST FULL</div>' : ''}
+    `;
+    row.addEventListener('click', () => openDayPanel(d.date));
+    container.appendChild(row);
+  });
+}
+
+async function openDayPanel(dateStr) {
+  selectedDate = dateStr;
+  const dateObj = new Date(dateStr);
+  document.getElementById('panelDate').textContent = dateObj.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+  const data = await api(`/api/occupancy?start=${dateStr}&end=${dateStr}`);
+  const dayInfo = data.days[0] || { bookings: [] };
+
+  const container = document.getElementById('panelBookings');
+  container.innerHTML = '';
+
+  function sortWithArrivalsFirst(bookings, secondarySort) {
+    return [...bookings].sort((a, b) => {
+      const aArriving = a.stay_status === 'Check-in today' ? 0 : 1;
+      const bArriving = b.stay_status === 'Check-in today' ? 0 : 1;
+      if (aArriving !== bArriving) return aArriving - bArriving;
+      return secondarySort(a, b);
+    });
+  }
+
+  const airbnbBookings = sortWithArrivalsFirst(
+    dayInfo.bookings.filter(b => b.platform === 'airbnb'),
+    (a, b) => (a.room_number || '').localeCompare(b.room_number || '')
+  );
+  const bookingComBookings = sortWithArrivalsFirst(
+    dayInfo.bookings.filter(b => b.platform === 'booking.com'),
+    (a, b) => (a.guest_name || '').localeCompare(b.guest_name || '')
+  );
+  const offlineBookings = sortWithArrivalsFirst(
+    dayInfo.bookings.filter(b => b.platform !== 'airbnb' && b.platform !== 'booking.com'),
+    (a, b) => (a.guest_name || '').localeCompare(b.guest_name || '')
+  );
+
+  function renderGroup(title, bookings) {
+    if (bookings.length === 0) return;
+    const heading = document.createElement('div');
+    heading.className = 'group-heading';
+
+    const catCounts = { 'Small Room': 0, 'Normal Room': 0, 'Double Bedroom': 0 };
+    bookings.forEach(b => {
+      const effectiveCategory = b.room_override || b.room_category;
+      if (catCounts[effectiveCategory] !== undefined) catCounts[effectiveCategory]++;
+    });
+    const parts = [];
+    if (catCounts['Small Room'] > 0) parts.push('S' + catCounts['Small Room']);
+    if (catCounts['Normal Room'] > 0) parts.push('N' + catCounts['Normal Room']);
+    if (catCounts['Double Bedroom'] > 0) parts.push('D' + catCounts['Double Bedroom']);
+    const breakdown = parts.length > 0 ? ', ' + parts.join(',') : '';
+
+    heading.textContent = title + ' (' + bookings.length + breakdown + ')';
+    container.appendChild(heading);
+
+    bookings.forEach(b => {
+      const card = document.createElement('div');
+      card.className = 'booking-card';
+      const namePrefix = b.platform === 'airbnb' && b.room_number ? (b.room_number + ' ') : '';
+      const stayDates = formatStayDates(b.check_in, b.check_out);
+      const statusLabel = b.stay_status || '';
+      const isOffline = b.platform !== 'airbnb' && b.platform !== 'booking.com';
+      const overrideBadge = b.room_override && b.room_override !== b.room_category
+        ? ` · <span class="room-override">→ Moved to ${b.room_override}</span>`
+        : '';
+      const roomBadge = b.assigned_room
+        ? ` · <span class="assigned-room">Room: ${b.assigned_room}</span>`
+        : ' · <span class="unassigned-room">⚠ Unassigned</span>';
+      // Passcode button only makes sense on the day the guest is actually
+      // checking in (not every night of their stay), and only once a real
+      // physical room is assigned - that's what the lock lookup keys on.
+      const isCheckInToday = b.check_in === dateStr;
+      const showPasscodeBtn = isCheckInToday && b.assigned_room;
+      card.innerHTML = `
+        <div class="name">${namePrefix}${b.guest_name || '(no name)'} <span class="stay-dates">${stayDates}</span></div>
+        <div class="booking-num">${b.booking_number}</div>
+        <div class="meta">${b.room_category || 'Unknown'} · ${b.status} ${statusLabel ? '· <span class="stay-status">' + statusLabel + '</span>' : ''}${overrideBadge}${roomBadge}</div>
+        <textarea placeholder="Notes (e.g. early check-in)">${b.notes || ''}</textarea>
+        <div class="actions">
+          <button class="save-note">Save note</button>
+          <button class="edit-booking">Edit</button>
+          <button class="invoice-booking">Invoice</button>
+          ${showPasscodeBtn ? '<button class="generate-passcode" style="color:#7a4fb5; border-color:#c9b3e6;">🔑 Passcode</button>' : ''}
+          ${isOffline ? '<button class="delete-booking" style="color:#c0392b; border-color:#e6a19a;">Delete</button>' : ''}
+        </div>
+      `;
+      card.querySelector('.save-note').addEventListener('click', async () => {
+        const notes = card.querySelector('textarea').value;
+        await api(`/api/bookings/${b.booking_number}`, {
+          method: 'PUT',
+          body: JSON.stringify({ ...b, notes }),
+        });
+        alert('Note saved');
+      });
+      card.querySelector('.edit-booking').addEventListener('click', () => openBookingForm(b));
+      card.querySelector('.invoice-booking').addEventListener('click', () => openInvoiceModal(b));
+      const passcodeBtn = card.querySelector('.generate-passcode');
+      if (passcodeBtn) {
+        passcodeBtn.addEventListener('click', async () => {
+          passcodeBtn.disabled = true;
+          passcodeBtn.textContent = 'Generating...';
+          try {
+            const result = await api(`/api/bookings/${b.booking_number}/generate-passcode`, { method: 'POST' });
+            if (result.error) throw new Error(result.error);
+            alert(`Passcode ${result.passcode} generated for ${result.guestName} (${result.unit}, ${result.system}).\nGuest message queued to WhatsApp.`);
+            passcodeBtn.textContent = '✓ Sent';
+          } catch (err) {
+            alert(`Failed to generate passcode: ${err.message}`);
+            passcodeBtn.disabled = false;
+            passcodeBtn.textContent = '🔑 Passcode';
+          }
+        });
+      }
+      const deleteBtn = card.querySelector('.delete-booking');
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', async () => {
+          if (!confirm(`Delete this offline booking for ${b.guest_name || '(no name)'}? This cannot be undone.`)) return;
+          try {
+            await api(`/api/bookings/${b.booking_number}`, { method: 'DELETE' });
+            closeDayPanel();
+            loadCalendar();
+            loadList();
+          } catch (err) {
+            alert(`Failed to delete booking: ${err.message}\n\nThe booking was NOT deleted - please try again.`);
+          }
+        });
+      }
+      container.appendChild(card);
+    });
+  }
+
+  renderGroup('Airbnb', airbnbBookings);
+  renderGroup('Booking.com', bookingComBookings);
+  renderGroup('Offline', offlineBookings);
+
+  document.getElementById('bookingForm').classList.remove('open');
+  document.getElementById('bookingFormOverlay').classList.remove('open');
+  document.getElementById('dayPanel').classList.add('open');
+  document.getElementById('dayPanelOverlay').classList.add('open');
+}
+
+document.getElementById('closePanel').addEventListener('click', closeDayPanel);
+document.getElementById('dayPanelOverlay').addEventListener('click', closeDayPanel);
+function closeDayPanel() {
+  document.getElementById('dayPanel').classList.remove('open');
+  document.getElementById('dayPanelOverlay').classList.remove('open');
+  closeBookingForm();
+}
+
+document.getElementById('addBtn').addEventListener('click', () => {
+  if (!selectedDate) selectedDate = isoDate(new Date());
+  openDayPanel(selectedDate).then(() => openBookingForm(null));
+});
+
+document.getElementById('addOfflineBtn').addEventListener('click', () => {
+  openBookingForm(null);
+});
+
+document.getElementById('autoAssignBtn').addEventListener('click', async () => {
+  if (!selectedDate) return;
+  const btn = document.getElementById('autoAssignBtn');
+  btn.disabled = true;
+  btn.textContent = 'Assigning...';
+  try {
+    const result = await api('/api/auto-assign-day', {
+      method: 'POST',
+      body: JSON.stringify({ date: selectedDate }),
+    });
+    const lines = [`Assigned ${result.assigned.length} room(s).`];
+    if (result.assigned.length > 0) {
+      lines.push(...result.assigned.map(a => `  ${a.bookingNumber} → ${a.room}`));
+    }
+    if (result.skipped.length > 0) {
+      lines.push('', `${result.skipped.length} skipped:`);
+      lines.push(...result.skipped.map(s => `  ${s.bookingNumber}: ${s.reason}`));
+    }
+    alert(lines.join('\n'));
+    openDayPanel(selectedDate);
+    loadCalendar();
+    loadList();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Auto-assign rooms';
+  }
+});
+
+document.getElementById('generatePasscodesBtn').addEventListener('click', async () => {
+  if (!selectedDate) return;
+  if (!confirm(`Generate lock passcodes for every guest checking in on ${selectedDate}?`)) return;
+  const btn = document.getElementById('generatePasscodesBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  try {
+    const result = await api('/api/generate-passcodes-day', {
+      method: 'POST',
+      body: JSON.stringify({ date: selectedDate }),
+    });
+    if (result.error) throw new Error(result.error);
+    const lines = [`Generated ${result.succeeded.length} passcode(s).`];
+    if (result.succeeded.length > 0) {
+      lines.push(...result.succeeded.map(s => `  ${s.guestName} (${s.unit}): ${s.passcode}`));
+    }
+    if (result.skipped.length > 0) {
+      lines.push('', `${result.skipped.length} skipped:`);
+      lines.push(...result.skipped.map(s => `  ${s.guestName || s.bookingNumber}: ${s.reason}`));
+    }
+    if (result.failed.length > 0) {
+      lines.push('', `${result.failed.length} failed:`);
+      lines.push(...result.failed.map(f => `  ${f.guestName || f.bookingNumber}: ${f.error}`));
+    }
+    alert(lines.join('\n'));
+    openDayPanel(selectedDate);
+  } catch (err) {
+    alert(`Failed to generate passcodes: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔑 Generate Passcodes';
+  }
+});
+
+function openBookingForm(booking) {
+  document.getElementById('bookingFormTitle').textContent = booking ? 'Edit Booking' : 'Add Offline Booking';
+  document.getElementById('f_booking_number').value = booking ? booking.booking_number : '';
+  document.getElementById('f_guest_name').value = booking ? (booking.guest_name || '') : '';
+  document.getElementById('f_room_category').value = booking ? (booking.room_category || 'Normal Room') : 'Normal Room';
+  document.getElementById('f_room_number').value = booking ? (booking.room_number || '') : '';
+  document.getElementById('f_room_override').value = booking ? (booking.room_override || '') : '';
+  document.getElementById('f_check_in').value = booking ? (booking.check_in || '') : (selectedDate || '');
+  document.getElementById('f_check_out').value = booking ? (booking.check_out || '') : '';
+  document.getElementById('f_status').value = booking ? (booking.status || 'new') : 'new';
+  document.getElementById('f_notes').value = booking ? (booking.notes || '') : '';
+  document.getElementById('bookingForm').classList.add('open');
+  document.getElementById('bookingFormOverlay').classList.add('open');
+
+  loadAvailableRooms(booking ? booking.assigned_room : null);
+}
+
+function closeBookingForm() {
+  document.getElementById('bookingForm').classList.remove('open');
+  document.getElementById('bookingFormOverlay').classList.remove('open');
+}
+document.getElementById('closeBookingFormBtn').addEventListener('click', closeBookingForm);
+document.getElementById('bookingFormOverlay').addEventListener('click', closeBookingForm);
+
+async function loadAvailableRooms(currentAssignedRoom) {
+  const select = document.getElementById('f_assigned_room');
+  const category = document.getElementById('f_room_override').value || document.getElementById('f_room_category').value;
+  const checkIn = document.getElementById('f_check_in').value;
+  const checkOut = document.getElementById('f_check_out').value;
+  const bookingNumber = document.getElementById('f_booking_number').value;
+
+  select.innerHTML = '<option value="">(unassigned)</option>';
+  if (!checkIn || !checkOut) return;
+
+  try {
+    const params = new URLSearchParams({ category, checkIn, checkOut, currentBooking: bookingNumber || '' });
+    const data = await api(`/api/available-rooms?${params.toString()}`);
+    const rooms = new Set(data.available || []);
+    if (currentAssignedRoom) rooms.add(currentAssignedRoom); // always show current room even if not "free"
+
+    [...rooms].forEach((room) => {
+      const opt = document.createElement('option');
+      opt.value = room;
+      opt.textContent = room + (room === currentAssignedRoom ? ' (current)' : '');
+      select.appendChild(opt);
+    });
+    select.value = currentAssignedRoom || '';
+  } catch (e) {
+    // leave as unassigned-only on error
+  }
+}
+
+document.getElementById('refreshRoomsBtn').addEventListener('click', () => {
+  loadAvailableRooms(document.getElementById('f_assigned_room').value);
+});
+
+document.getElementById('saveBookingBtn').addEventListener('click', async () => {
+  const bookingNumber = document.getElementById('f_booking_number').value;
+  const payload = {
+    booking_number: bookingNumber || undefined,
+    platform: 'manual',
+    guest_name: document.getElementById('f_guest_name').value,
+    room_category: document.getElementById('f_room_category').value,
+    room_override: document.getElementById('f_room_override').value || null,
+    assigned_room: document.getElementById('f_assigned_room').value || null,
+    room_number: document.getElementById('f_room_number').value,
+    check_in: document.getElementById('f_check_in').value,
+    check_out: document.getElementById('f_check_out').value,
+    status: document.getElementById('f_status').value,
+    notes: document.getElementById('f_notes').value,
+  };
+  if (bookingNumber) {
+    await api(`/api/bookings/${bookingNumber}`, { method: 'PUT', body: JSON.stringify(payload) });
+  } else {
+    await api('/api/bookings', { method: 'POST', body: JSON.stringify(payload) });
+  }
+  closeBookingForm();
+  if (selectedDate) openDayPanel(selectedDate);
+  loadCalendar();
+  loadList();
+});
+
+async function loadPendingStatus() {
+  try {
+    const data = await api('/api/pending');
+    renderSyncBar(data);
+  } catch (e) {
+    // ignore transient errors, will retry on next poll
+  }
+}
+
+function renderSyncBar(data) {
+  const bar = document.getElementById('syncBar');
+  const countText = document.getElementById('syncCountText');
+  const clearBtn = document.getElementById('clearErrorsBtn');
+  const list = document.getElementById('pendingList');
+
+  const hasFailed = data.counts.failed > 0;
+  bar.classList.toggle('hasError', hasFailed);
+  clearBtn.style.display = hasFailed ? 'inline-block' : 'none';
+
+  if (hasFailed) {
+    countText.textContent = '⚠ ' + data.counts.failed + ' failed, ' + data.counts.pending + ' pending — login/session issue, check email';
+    countText.classList.remove('zero');
+  } else if (data.counts.pending === 0) {
+    countText.textContent = 'All synced';
+    countText.classList.add('zero');
+  } else {
+    countText.textContent = data.counts.pending + ' booking' + (data.counts.pending === 1 ? '' : 's') + ' not yet synced';
+    countText.classList.remove('zero');
+  }
+
+  list.innerHTML = '';
+  data.items.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'pending-item' + (item.status === 'failed' ? ' failed' : '');
+    const receivedLabel = item.email_received_at
+      ? new Date(item.email_received_at).toLocaleString('default', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    row.innerHTML = `
+      <div>
+        <div class="pi-main">${item.booking_number} <span class="pi-badge ${item.type}">${item.type}</span></div>
+        <div class="pi-sub">Check-in: ${item.subject_check_in || '?'} · Email: ${receivedLabel}${item.status === 'failed' ? ' · ' + (item.error_message || 'failed') : ''}</div>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+document.getElementById('togglePendingListBtn').addEventListener('click', () => {
+  pendingListOpen = !pendingListOpen;
+  document.getElementById('pendingList').classList.toggle('open', pendingListOpen);
+});
+
+document.getElementById('syncNowBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('syncNowBtn');
+  btn.disabled = true;
+  await api('/api/sync-now', { method: 'POST' });
+  pollSyncStatus();
+});
+
+document.getElementById('clearErrorsBtn').addEventListener('click', async () => {
+  await api('/api/clear-errors', { method: 'POST' });
+  loadPendingStatus();
+});
+
+document.getElementById('sendCheckoutReportBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('sendCheckoutReportBtn');
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  try {
+    const result = await api('/api/send-checkout-report', { method: 'POST' });
+    alert('Sent to housekeeping:\n\n' + result.message);
+  } catch (err) {
+    alert('Failed to send: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send Checkout Report';
+  }
+});
+
+function pollSyncStatus() {
+  if (syncPollTimer) clearInterval(syncPollTimer);
+  const progressEl = document.getElementById('syncProgressText');
+  const btn = document.getElementById('syncNowBtn');
+
+  syncPollTimer = setInterval(async () => {
+    const state = await api('/api/sync-status');
+    if (state.running) {
+      progressEl.style.display = 'block';
+      progressEl.textContent = 'Syncing... ' + state.processed + ' of ' + state.total + (state.currentBooking ? ' (current: ' + state.currentBooking + ')' : '');
+      btn.disabled = true;
+    } else {
+      progressEl.style.display = 'none';
+      btn.disabled = false;
+      clearInterval(syncPollTimer);
+      syncPollTimer = null;
+      loadPendingStatus();
+      loadCalendar();
+      loadList();
+    }
+  }, 3000);
+}
+
+// ---------- INVOICE GENERATION ----------
+let invoiceState = {};
+
+const ROOM_TYPE_BY_CATEGORY = {
+  'Normal Room': { label: '1 King size bed and 2 Queen size bed', capacity: '6 Pax' },
+  'Small Room': { label: '1 King size bed, 1 Queen size bed and 1 Sofa bed', capacity: '5 Pax' },
+  'Double Bedroom': { label: '2 bedroom 2 bathroom 1 living', capacity: '7 Pax' },
+};
+
+const PAYMENT_METHOD_BY_PLATFORM = {
+  'booking.com': 'BOOKING_COM',
+  'airbnb': 'AIRBNB',
+};
+
+function formatDatePDF(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${d.getDate()}-${months[d.getMonth()]}-${yy}`;
+}
+
+function formatCurrency(num) {
+  const n = parseFloat(num);
+  return isNaN(n) ? '0.00' : n.toFixed(2);
+}
+
+function generateInvoiceSerial(checkOutDate, roomCode) {
+  let datePart = 'YYMMDD';
+  if (checkOutDate) {
+    const d = new Date(checkOutDate);
+    if (!isNaN(d.getTime())) {
+      datePart = `${String(d.getFullYear()).slice(-2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    }
+  }
+  const clean = (roomCode || 'XXXX').replace(/\s+/g, '').toUpperCase();
+  return `CS${datePart}-${clean}`;
+}
+
+function openInvoiceModal(booking) {
+  const effectiveCategory = booking.room_override || booking.room_category;
+  const roomCode = booking.assigned_room || booking.room_number || effectiveCategory || 'XXXX';
+
+  invoiceState = {
+    documentType: 'INVOICE',
+    documentNo: generateInvoiceSerial(booking.check_out, roomCode),
+    documentDate: isoDate(new Date()),
+    guestName: booking.guest_name || '',
+    idNumber: '',
+    phone: '',
+    roomNumber: booking.room_number || (effectiveCategory || ''),
+    roomCategory: effectiveCategory,
+    checkInDate: booking.check_in,
+    checkOutDate: booking.check_out,
+    units: 1,
+    totalPrice: '',
+    tourismFee: 0,
+    extraName: '',
+    extraAmount: '',
+    paymentMethod: PAYMENT_METHOD_BY_PLATFORM[booking.platform] || 'CASH',
+    isPaid: false,
+    notes: booking.notes || '',
+  };
+
+  document.getElementById('inv_guest_name').value = invoiceState.guestName;
+  document.getElementById('inv_id_number').value = '';
+  document.getElementById('inv_phone').value = '';
+  document.getElementById('inv_units').value = 1;
+  document.getElementById('inv_total_price').value = '';
+  document.getElementById('inv_tourism_fee').value = 0;
+  document.getElementById('inv_extra_name').value = '';
+  document.getElementById('inv_extra_amount').value = '';
+  document.getElementById('inv_payment_method').value = invoiceState.paymentMethod;
+  document.getElementById('inv_is_paid').checked = false;
+  document.getElementById('inv_notes').value = invoiceState.notes;
+  setInvoiceType('INVOICE');
+
+  renderInvoicePreview();
+  document.getElementById('invoiceOverlay').classList.add('open');
+  document.getElementById('invoiceModal').classList.add('open');
+}
+
+function closeInvoiceModal() {
+  document.getElementById('invoiceOverlay').classList.remove('open');
+  document.getElementById('invoiceModal').classList.remove('open');
+}
+
+function setInvoiceType(type) {
+  invoiceState.documentType = type;
+  document.getElementById('inv_type_invoice').classList.toggle('active', type === 'INVOICE');
+  document.getElementById('inv_type_booking').classList.toggle('active', type === 'BOOKING_FORM');
+  renderInvoicePreview();
+}
+
+document.getElementById('inv_type_invoice').addEventListener('click', () => setInvoiceType('INVOICE'));
+document.getElementById('inv_type_booking').addEventListener('click', () => setInvoiceType('BOOKING_FORM'));
+document.getElementById('closeInvoiceModal').addEventListener('click', closeInvoiceModal);
+document.getElementById('invoiceOverlay').addEventListener('click', closeInvoiceModal);
+
+[
+  'inv_guest_name', 'inv_id_number', 'inv_phone', 'inv_units', 'inv_total_price', 'inv_tourism_fee',
+  'inv_extra_name', 'inv_extra_amount', 'inv_payment_method', 'inv_is_paid', 'inv_notes',
+].forEach((id) => {
+  document.getElementById(id).addEventListener('input', renderInvoicePreview);
+  document.getElementById(id).addEventListener('change', renderInvoicePreview);
+});
+
+function nightsBetweenClient(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return 0;
+  const d1 = new Date(checkIn);
+  const d2 = new Date(checkOut);
+  const diff = Math.round((d2 - d1) / 86400000);
+  return diff > 0 ? diff : 0;
+}
+
+const PAYMENT_NOTE_TEXT = {
+  CASH: 'Payment is to be collected as Cash upon arrival',
+  BOOKING_COM: 'Payment has been successfully received through Booking.com Platform',
+  AIRBNB: 'Payment has been successfully received through Airbnb Platform',
+  BANK_TRANSFER: 'Payment has been successfully received via Bank Transfer',
+};
+
+const INVOICE_DOC_CSS = `
+  .inv-header { text-align: center; border-bottom: 1px solid #eee; padding-bottom: 14px; margin-bottom: 14px; }
+  .inv-header h1 { font-size: 34px; color: #1a448a; margin: 0; font-weight: 700; }
+  .inv-header p { font-size: 10px; color: #2d579c; font-weight: 700; letter-spacing: 1px; margin: 3px 0 0; text-transform: uppercase; }
+  .inv-subheader { display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 16px; }
+  .inv-subheader .prop-info { color: #1a448a; line-height: 1.5; }
+  .inv-subheader .prop-info h2 { font-size: 13px; margin: 0 0 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .inv-subheader .prop-info p { margin: 0; color: #444; font-weight: 500; }
+  .inv-doc-title { text-align: right; }
+  .inv-doc-title h2 { font-size: 22px; color: #112d60; margin: 0 0 8px; text-transform: uppercase; font-weight: 900; }
+  .inv-doc-title .row { display: flex; justify-content: flex-end; gap: 8px; font-size: 12px; font-weight: 600; }
+  .inv-doc-title .row .label { color: #888; font-size: 10px; text-transform: uppercase; }
+  .doc-no-copy { cursor: pointer; }
+  .inv-meta { display: flex; gap: 24px; border-top: 1px solid #999; border-bottom: 1px solid #999; padding: 10px 0; margin-bottom: 16px; font-size: 12px; }
+  .inv-meta > div { flex: 1; }
+  .inv-meta h3 { font-size: 10px; text-transform: uppercase; margin: 0 0 5px; letter-spacing: 0.5px; }
+  .inv-meta .guest-name { font-weight: 700; text-transform: uppercase; }
+  .inv-meta .contact-block { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #ccc; font-size: 11px; white-space: pre-line; }
+  .inv-meta .contact-label { color: #999; text-transform: uppercase; font-size: 10px; display: block; }
+  .inv-meta .room-label { color: #444; font-size: 11px; }
+  table.inv-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 16px; }
+  table.inv-table th, table.inv-table td { border: 1px solid #333; padding: 8px; text-align: center; }
+  table.inv-table th { text-transform: uppercase; font-size: 9px; background: #f7f7f7; }
+  table.inv-table td.amt { text-align: right; padding-right: 12px; font-family: monospace; }
+  table.inv-table tr.empty td { height: 26px; }
+  table.inv-table tr.total-row td { font-weight: 900; font-size: 13px; background: #f0f0f0; border-width: 2px; }
+  table.inv-table tr.fee-row td.label { text-align: right; font-weight: 700; font-size: 10px; text-transform: uppercase; color: #444; }
+  .inv-footer { font-size: 11px; font-style: italic; color: #333; margin-top: 10px; }
+  .inv-footer .remark { color: #888; font-size: 10px; margin-top: 6px; border-top: 1px dotted #ccc; padding-top: 6px; }
+  .inv-thanks { text-align: center; font-size: 11px; font-weight: 800; color: #1a448a; text-transform: uppercase; letter-spacing: 1px; margin-top: 18px; padding-top: 12px; border-top: 1px solid #eee; }
+  .inv-paid-stamp-below { display: block; text-align: right; margin: 10px 0; }
+  .inv-paid-stamp-below span { display: inline-block; transform: rotate(-8deg); border: 3px double #c0392b; border-radius: 8px; padding: 6px 20px; color: #c0392b; font-size: 20px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; }
+`;
+
+function readInvoiceFormValues() {
+  return {
+    guestName: document.getElementById('inv_guest_name').value.trim(),
+    idNumber: document.getElementById('inv_id_number').value.trim(),
+    phone: document.getElementById('inv_phone').value.trim(),
+    units: parseInt(document.getElementById('inv_units').value, 10) || 1,
+    totalPrice: parseFloat(document.getElementById('inv_total_price').value) || 0,
+    tourismFee: parseFloat(document.getElementById('inv_tourism_fee').value) || 0,
+    extraName: document.getElementById('inv_extra_name').value.trim(),
+    extraAmount: parseFloat(document.getElementById('inv_extra_amount').value) || 0,
+    paymentMethod: document.getElementById('inv_payment_method').value,
+    isPaid: document.getElementById('inv_is_paid').checked,
+    notes: document.getElementById('inv_notes').value.trim(),
+  };
+}
+
+function buildInvoiceHtml(v) {
+  const nights = nightsBetweenClient(invoiceState.checkInDate, invoiceState.checkOutDate);
+  const amount = v.totalPrice;
+  const grandTotal = amount + v.tourismFee + v.extraAmount;
+  const roomInfo = ROOM_TYPE_BY_CATEGORY[invoiceState.roomCategory] || { label: invoiceState.roomCategory || '', capacity: '' };
+
+  const emptyRowsCount = 5;
+  let emptyRowsHtml = '';
+  for (let i = 0; i < emptyRowsCount; i++) emptyRowsHtml += '<tr class="empty"><td></td><td></td><td></td><td></td><td></td><td></td></tr>';
+
+  const docTitle = invoiceState.documentType === 'BOOKING_FORM' ? 'BOOKING FORM' : 'INVOICE';
+
+  return `
+    <div class="inv-header">
+      <h1>The Boston House</h1>
+      <p>(Co. Reg. No. RA0109715-M)</p>
+    </div>
+    <div class="inv-subheader">
+      <div class="prop-info">
+        <h2>Swiss Garden Residence</h2>
+        <p>No. 2A, Jalan Galloway,</p>
+        <p>Bukit Bintang, 50150 Kuala Lumpur.</p>
+        <p><strong>Tel:</strong> +6011-54063854</p>
+      </div>
+      <div class="inv-doc-title">
+        <h2>${docTitle}</h2>
+        <div class="row"><span class="label">NO:</span><span>${invoiceState.documentNo}</span></div>
+        <div class="row"><span class="label">DATE:</span><span>${formatDatePDF(invoiceState.documentDate)}</span></div>
+      </div>
+    </div>
+    <div class="inv-meta">
+      <div>
+        <h3>NAME:</h3>
+        <div class="guest-name">${v.guestName || '(no name)'}${v.idNumber ? ' (' + v.idNumber + ')' : ''}</div>
+        ${v.phone ? `<div class="contact-block"><span class="contact-label">Contact:</span>${v.phone}</div>` : ''}
+      </div>
+      <div>
+        <h3>FOR:</h3>
+        <div><strong>Room at Swiss Garden Residences Kuala Lumpur</strong></div>
+        <div class="room-label">Type of Room: ${roomInfo.label}</div>
+        ${roomInfo.capacity ? `<div class="room-label">Number of Guest: ${roomInfo.capacity}</div>` : ''}
+      </div>
+    </div>
+    <table class="inv-table">
+      <thead>
+        <tr><th>Check In</th><th>Check Out</th><th>No. of Night(s)</th><th>No. of Unit(s)</th><th>Rate/Night (MYR)</th><th>Amount (MYR)</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>${formatDatePDF(invoiceState.checkInDate)}</td>
+          <td>${formatDatePDF(invoiceState.checkOutDate)}</td>
+          <td>${nights}</td>
+          <td>${v.units}</td>
+          <td class="amt">${formatCurrency(nights > 0 ? amount / nights / v.units : 0)}</td>
+          <td class="amt">${formatCurrency(amount)}</td>
+        </tr>
+        ${emptyRowsHtml}
+        ${v.extraAmount ? `<tr class="fee-row"><td colspan="4"></td><td class="label">${v.extraName || 'EXTRA SERVICE'}</td><td class="amt">${formatCurrency(v.extraAmount)}</td></tr>` : ''}
+        ${v.tourismFee > 0 ? `<tr class="fee-row"><td colspan="4"></td><td class="label">TOURISM FEE</td><td class="amt">${formatCurrency(v.tourismFee)}</td></tr>` : ''}
+        <tr class="total-row"><td colspan="4"></td><td>TOTAL</td><td class="amt">${formatCurrency(grandTotal)}</td></tr>
+      </tbody>
+    </table>
+    ${v.isPaid ? '<div class="inv-paid-stamp-below"><span>PAID</span></div>' : ''}
+    <div class="inv-footer">
+      Note: ${PAYMENT_NOTE_TEXT[v.paymentMethod] || ''}
+      ${v.notes ? `<div class="remark">Remarks: ${v.notes}</div>` : ''}
+    </div>
+    <div class="inv-thanks">Thank You For Your Staying!</div>
+  `;
+}
+
+function renderInvoicePreview() {
+  const v = readInvoiceFormValues();
+  document.getElementById('invoicePreview').innerHTML = buildInvoiceHtml(v);
+}
+
+// Opens a completely clean, standalone tab containing ONLY the A4 invoice -
+// no modal, no other page UI, so printing never clips content that was
+// scrolled out of view (a real problem with in-page print on mobile browsers).
+document.getElementById('printInvoiceBtn').addEventListener('click', () => {
+  const v = readInvoiceFormValues();
+  const invoiceHtml = buildInvoiceHtml(v);
+  const docNo = invoiceState.documentNo;
+
+  const win = window.open('', '_blank');
+  win.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>${docNo}</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #ccc; font-family: Georgia, 'Times New Roman', serif; }
+        .a4-toolbar {
+          position: sticky; top: 0; z-index: 10; background: #003580; color: white;
+          padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;
+          font-family: -apple-system, sans-serif; font-size: 14px;
+        }
+        .a4-toolbar button {
+          background: white; color: #003580; border: none; padding: 8px 16px;
+          border-radius: 6px; font-weight: 700; font-size: 13px;
+        }
+        .a4-page {
+          width: 210mm; min-height: 297mm; margin: 16px auto; background: white;
+          padding: 15mm; box-shadow: 0 2px 12px rgba(0,0,0,0.3); position: relative;
+          color: #1a1a1a;
+        }
+        ${INVOICE_DOC_CSS}
+        @media print {
+          .a4-toolbar { display: none; }
+          body { background: white; }
+          .a4-page { box-shadow: none; margin: 0; width: 100%; min-height: 0; }
+          @page { size: A4; margin: 0; }
+        }
+        #copyFlash {
+          position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+          background: #2e7d32; color: white; padding: 10px 20px; border-radius: 8px;
+          font-family: -apple-system, sans-serif; font-size: 14px; display: none; z-index: 20;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="a4-toolbar">
+        <span id="docNoDisplay">${docNo}</span>
+        <div style="display:flex; gap:8px;">
+          <button id="copyDocNoBtn">Copy Doc No.</button>
+          <button onclick="window.print()">Print / Save as PDF</button>
+        </div>
+      </div>
+      <div class="a4-page">${invoiceHtml}</div>
+      <div id="copyFlash">Copied!</div>
+      <script>
+        document.getElementById('copyDocNoBtn').addEventListener('click', function() {
+          navigator.clipboard.writeText(${JSON.stringify(docNo)}).then(function() {
+            var flash = document.getElementById('copyFlash');
+            flash.style.display = 'block';
+            setTimeout(function() { flash.style.display = 'none'; }, 1200);
+          });
+        });
+      <\/script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+});
+
+(async () => {
+  try {
+    const data = await api('/api/me');
+    currentUser = data.user;
+    showApp();
+    loadCalendar();
+    loadPendingStatus();
+    loadWhatsappStatus();
+    setInterval(() => {
+      const activeTab = document.getElementById('tabCalendar').classList.contains('active') ? 'calendar' : 'list';
+      if (activeTab === 'calendar') loadCalendar(); else loadList();
+    }, 30000);
+    setInterval(loadPendingStatus, 20000);
+    setInterval(loadWhatsappStatus, 20000);
+  } catch (e) {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>

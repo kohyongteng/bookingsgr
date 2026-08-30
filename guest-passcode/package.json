@@ -1,0 +1,17 @@
+{
+  "name": "guest-passcode",
+  "version": "1.0.0",
+  "description": "The single function the dashboard's \"generate passcode\" button should call. Given a unit, guest name, and check-in/out dates, it creates a lock passcode (Tuya or TTLock, auto-detected) and drops a WhatsApp message into the existing outbox folder. Nothing else - no DB access, no UI, no code deletion.",
+  "main": "create-guest-passcode.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@tuya/tuya-connector-nodejs": "^2.1.2",
+    "dotenv": "^17.4.2"
+  }
+}

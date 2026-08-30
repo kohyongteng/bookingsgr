@@ -1,0 +1,655 @@
+const express = require('express');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
+const Database = require('better-sqlite3');
+const fs = require('fs');
+const path = require('path');
+
+const lib = require('../email-processor/lib');
+const syncService = require('../email-processor/sync-service');
+
+// Guest lock passcode generation - lives in a separate folder (C:\Lock\guest-passcode)
+// outside this project, since it was built/tested independently. Loaded defensively
+// so a missing/misconfigured lock module doesn't take down the whole dashboard - the
+// passcode routes just report "not available" instead of crashing on startup.
+const LOCK_MODULE_PATH = process.env.LOCK_MODULE_PATH || 'C:\\apps\\guest-passcode\\create-guest-passcode.js';
+let createGuestPasscode = null;
+try {
+  ({ createGuestPasscode } = require(LOCK_MODULE_PATH));
+} catch (err) {
+  console.error(`[passcode] Lock module not loaded from ${LOCK_MODULE_PATH}: ${err.message}`);
+}
+
+const app = express();
+const PORT = 3003;
+const DB_PATH = 'C:\\apps\\shared-data\\bookings.db';
+const USERS_FILE = path.join(__dirname, 'users.json');
+
+const ROOM_POOLS = {
+  'Normal Room': 12,
+  'Double Bedroom': 9,
+  'Small Room': 1,
+};
+
+const ROOM_REGISTRY = JSON.parse(fs.readFileSync(path.join(__dirname, 'physical-room-registry.json'), 'utf8'));
+
+function getCandidateRooms(category) {
+  if (category === 'Double Bedroom') {
+    return [...ROOM_REGISTRY['Double Bedroom'].dedicated, ...Object.keys(ROOM_REGISTRY['Double Bedroom'].airbnbShared)];
+  }
+  return ROOM_REGISTRY[category] || [];
+}
+const TOTAL_CAPACITY = Object.values(ROOM_POOLS).reduce((a, b) => a + b, 0);
+const ALMOST_FULL_THRESHOLD = 2;
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(session({
+  secret: 'swiss-garden-dashboard-secret-change-me',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 1000 * 60 * 60 * 24 * 30 },
+}));
+
+function getUsers() {
+  if (!fs.existsSync(USERS_FILE)) return [];
+  return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+}
+
+function requireAuth(req, res, next) {
+  if (req.session && req.session.user) return next();
+  return res.status(401).json({ error: 'Not logged in' });
+}
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  const users = getUsers();
+  const user = users.find((u) => u.username === username);
+  if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+  req.session.user = { username: user.username, role: user.role };
+  res.json({ status: 'ok', user: req.session.user });
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => res.json({ status: 'ok' }));
+});
+
+app.get('/api/me', (req, res) => {
+  if (req.session && req.session.user) return res.json({ user: req.session.user });
+  res.status(401).json({ error: 'Not logged in' });
+});
+
+app.get('/api/bookings', requireAuth, (req, res) => {
+  const db = new Database(DB_PATH);
+  const rows = db.prepare('SELECT * FROM bookings ORDER BY check_in').all();
+  db.close();
+  res.json(rows);
+});
+
+function generateOfflineCode(guestName, checkIn, db) {
+  const words = (guestName || '').trim().split(/\s+/).filter(Boolean);
+  let initials;
+  if (words.length >= 2) {
+    initials = (words[0][0] + words[1][0]).toUpperCase();
+  } else if (words.length === 1) {
+    initials = words[0].slice(0, 2).toUpperCase().padEnd(2, 'X');
+  } else {
+    initials = 'XX';
+  }
+
+  const [y, m, d] = (checkIn || '').split('-');
+  const datePart = y ? `${y.slice(2)}${m}${d}` : '000000';
+  const base = `${initials}${datePart}`;
+
+  // Handle collisions (e.g. two guests with the same initials on the same day)
+  // by appending A, B, C... until a free code is found.
+  let candidate = base;
+  let suffix = 0;
+  while (db.prepare('SELECT 1 FROM bookings WHERE booking_number = ?').get(candidate)) {
+    candidate = base + String.fromCharCode(65 + suffix);
+    suffix++;
+  }
+  return candidate;
+}
+
+app.post('/api/bookings', requireAuth, (req, res) => {
+  const b = req.body;
+  const db = new Database(DB_PATH);
+  const bookingNumber = b.booking_number || generateOfflineCode(b.guest_name, b.check_in, db);
+  const stmt = db.prepare(`
+    INSERT INTO bookings (
+      booking_number, platform, room_category, room_number,
+      guest_name, check_in, check_out, status, notes, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(booking_number) DO UPDATE SET
+      room_category = excluded.room_category,
+      room_number = excluded.room_number,
+      guest_name = excluded.guest_name,
+      check_in = excluded.check_in,
+      check_out = excluded.check_out,
+      status = excluded.status,
+      notes = excluded.notes,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+  stmt.run(
+    bookingNumber,
+    b.platform || 'manual',
+    b.room_category || null,
+    b.room_number || null,
+    b.guest_name || null,
+    b.check_in || null,
+    b.check_out || null,
+    b.status || 'new',
+    b.notes || null
+  );
+  db.close();
+  res.json({ status: 'ok', booking_number: bookingNumber });
+});
+
+app.put('/api/bookings/:bookingNumber', requireAuth, (req, res) => {
+  const b = req.body;
+  const db = new Database(DB_PATH);
+
+  const existing = db.prepare('SELECT * FROM bookings WHERE booking_number = ?').get(req.params.bookingNumber);
+  if (!existing) {
+    db.close();
+    return res.status(404).json({ error: 'Booking not found' });
+  }
+
+  // Only overwrite fields that were actually included in the request body.
+  // This prevents partial updates (like saving just a note) from accidentally
+  // wiping out fields the frontend didn't send, such as check_in/check_out.
+  const merged = {
+    room_category: b.room_category !== undefined ? b.room_category : existing.room_category,
+    room_override: b.room_override !== undefined ? b.room_override : existing.room_override,
+    assigned_room: b.assigned_room !== undefined ? b.assigned_room : existing.assigned_room,
+    room_number: b.room_number !== undefined ? b.room_number : existing.room_number,
+    guest_name: b.guest_name !== undefined ? b.guest_name : existing.guest_name,
+    check_in: b.check_in !== undefined ? b.check_in : existing.check_in,
+    check_out: b.check_out !== undefined ? b.check_out : existing.check_out,
+    status: b.status !== undefined ? b.status : existing.status,
+    notes: b.notes !== undefined ? b.notes : existing.notes,
+  };
+
+  const stmt = db.prepare(`
+    UPDATE bookings SET
+      room_category = ?, room_override = ?, assigned_room = ?, room_number = ?, guest_name = ?,
+      check_in = ?, check_out = ?, status = ?, notes = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE booking_number = ?
+  `);
+  stmt.run(
+    merged.room_category,
+    merged.room_override,
+    merged.assigned_room,
+    merged.room_number,
+    merged.guest_name,
+    merged.check_in,
+    merged.check_out,
+    merged.status,
+    merged.notes,
+    req.params.bookingNumber
+  );
+  db.close();
+  res.json({ status: 'ok' });
+});
+
+app.delete('/api/bookings/:bookingNumber', requireAuth, (req, res) => {
+  const db = new Database(DB_PATH);
+  db.prepare('DELETE FROM bookings WHERE booking_number = ?').run(req.params.bookingNumber);
+  db.close();
+  res.json({ status: 'ok' });
+});
+
+// Pure integer-based date helpers - no Date objects, no timezone ambiguity possible.
+function isoToParts(iso) {
+  const [y, m, d] = iso.split('-').map((n) => parseInt(n, 10));
+  return { y, m, d };
+}
+
+function partsToIso(y, m, d) {
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function isLeapYear(y) {
+  return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+}
+
+function daysInMonth(y, m) {
+  if (m === 2 && isLeapYear(y)) return 29;
+  return DAYS_IN_MONTH[m - 1];
+}
+
+// Returns the next calendar day as an ISO string, using plain integer math only.
+function nextIsoDay(iso) {
+  let { y, m, d } = isoToParts(iso);
+  d += 1;
+  if (d > daysInMonth(y, m)) {
+    d = 1;
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return partsToIso(y, m, d);
+}
+
+// Generates every ISO date string from start to end (inclusive), purely via string/integer math.
+function isoDateRange(startIso, endIso) {
+  const dates = [];
+  let cur = startIso;
+  let guard = 0;
+  while (cur <= endIso && guard < 400) {
+    dates.push(cur);
+    cur = nextIsoDay(cur);
+    guard++;
+  }
+  return dates;
+}
+
+// Returns every night (as ISO strings) a guest occupies a room: check-in night
+// through the night before checkout. Pure string comparison, no Date objects.
+function nightsBetweenIso(checkInIso, checkOutIso) {
+  if (!checkInIso || !checkOutIso || checkOutIso <= checkInIso) return [];
+  const nights = [];
+  let cur = checkInIso;
+  let guard = 0;
+  while (cur < checkOutIso && guard < 400) {
+    nights.push(cur);
+    cur = nextIsoDay(cur);
+    guard++;
+  }
+  return nights;
+}
+
+// Nights remaining from a given night through checkout, via pure string/integer math.
+function nightsRemaining(fromIso, checkOutIso) {
+  let count = 0;
+  let cur = fromIso;
+  let guard = 0;
+  while (cur < checkOutIso && guard < 400) {
+    count++;
+    cur = nextIsoDay(cur);
+    guard++;
+  }
+  return count;
+}
+
+// Given a category and date range, returns which physical rooms are genuinely
+// free (checked across ALL platforms - Booking.com, Airbnb, offline - since
+// they share the same 21 physical rooms). Always includes the booking's own
+// currently-assigned room too, even if "occupied" (by itself).
+app.get('/api/available-rooms', requireAuth, (req, res) => {
+  const { category, checkIn, checkOut, currentBooking } = req.query;
+  if (!category || !checkIn || !checkOut) {
+    return res.status(400).json({ error: 'category, checkIn, checkOut are required' });
+  }
+
+  const candidates = getCandidateRooms(category);
+  const db = new Database(DB_PATH);
+
+  const overlapping = db.prepare(`
+    SELECT assigned_room, booking_number FROM bookings
+    WHERE status != 'cancelled' AND assigned_room IS NOT NULL
+    AND check_in < ? AND check_out > ?
+  `).all(checkOut, checkIn);
+  db.close();
+
+  const occupiedRooms = new Set(
+    overlapping.filter((r) => r.booking_number !== currentBooking).map((r) => r.assigned_room)
+  );
+
+  const available = candidates.filter((room) => !occupiedRooms.has(room));
+
+  // For Double Bedroom, list dedicated rooms first (preferred), then Airbnb-shared ones.
+  let ordered = available;
+  if (category === 'Double Bedroom') {
+    const dedicated = ROOM_REGISTRY['Double Bedroom'].dedicated;
+    ordered = [
+      ...available.filter((r) => dedicated.includes(r)),
+      ...available.filter((r) => !dedicated.includes(r)),
+    ];
+  }
+
+  res.json({ available: ordered });
+});
+
+// Assigns a physical room to every active, unassigned booking that overlaps the
+// given date - not just fresh arrivals, so it also catches anything missed on a
+// previous day. Uses the exact same overlap-checking logic as /api/available-rooms,
+// per booking's own actual check_in/check_out (not just the requested date), so an
+// assignment is always genuinely conflict-free for the booking's whole stay.
+app.post('/api/auto-assign-day', requireAuth, (req, res) => {
+  const { date } = req.body;
+  if (!date) {
+    return res.status(400).json({ error: 'date is required' });
+  }
+
+  const db = new Database(DB_PATH);
+
+  const candidates = db
+    .prepare(`
+      SELECT booking_number, platform, room_number, room_category, room_override, check_in, check_out FROM bookings
+      WHERE status != 'cancelled' AND assigned_room IS NULL
+      AND check_in <= ? AND check_out > ?
+    `)
+    .all(date, date);
+
+  const assigned = [];
+  const skipped = [];
+
+  for (const booking of candidates) {
+    const category = booking.room_override || booking.room_category;
+    const pool = getCandidateRooms(category);
+    if (!category || category === 'UNKNOWN' || pool.length === 0) {
+      skipped.push({ bookingNumber: booking.booking_number, reason: `Missing/unknown room category (${category || 'none'})` });
+      continue;
+    }
+
+    const overlapping = db
+      .prepare(`
+        SELECT assigned_room FROM bookings
+        WHERE status != 'cancelled' AND assigned_room IS NOT NULL
+        AND check_in < ? AND check_out > ? AND booking_number != ?
+      `)
+      .all(booking.check_out, booking.check_in, booking.booking_number);
+    const occupied = new Set(overlapping.map((r) => r.assigned_room));
+
+    let orderedCandidates; // priority order, first available wins - not a random pick
+    if (category === 'Double Bedroom') {
+      const dedicated = ROOM_REGISTRY['Double Bedroom'].dedicated;
+      const airbnbShared = ROOM_REGISTRY['Double Bedroom'].airbnbShared; // { roomCode: listingTag }
+
+      if (booking.platform === 'airbnb') {
+        // Airbnb Double Bedroom bookings only ever use airbnbShared rooms, never
+        // dedicated - and always prefer their OWN listing's default room first
+        // (e.g. #06 -> N2206), only spilling over to another Airbnb-shared room
+        // if their own is genuinely occupied by something else.
+        const ownRoom = Object.keys(airbnbShared).find((room) => airbnbShared[room] === booking.room_number);
+        const rest = Object.keys(airbnbShared).filter((room) => room !== ownRoom);
+        orderedCandidates = ownRoom ? [ownRoom, ...rest] : rest;
+      } else {
+        // Booking.com/offline: dedicated rooms are the primary pool; Airbnb-shared
+        // rooms are only a last-minute exception when every dedicated room is taken.
+        orderedCandidates = [...dedicated, ...Object.keys(airbnbShared)];
+      }
+    } else {
+      orderedCandidates = pool;
+    }
+
+    const available = orderedCandidates.filter((room) => !occupied.has(room));
+
+    if (available.length === 0) {
+      skipped.push({ bookingNumber: booking.booking_number, reason: `No free ${category} room for these dates` });
+      continue;
+    }
+
+    // Double Bedroom has a real priority order (an Airbnb listing's own default
+    // room must win outright if free), so take the first available in that order.
+    // Normal/Small Room have no such preference, so pick randomly among equals.
+    const room = category === 'Double Bedroom'
+      ? available[0]
+      : available[Math.floor(Math.random() * available.length)];
+    db.prepare('UPDATE bookings SET assigned_room = ?, updated_at = CURRENT_TIMESTAMP WHERE booking_number = ?').run(
+      room,
+      booking.booking_number
+    );
+    assigned.push({ bookingNumber: booking.booking_number, room });
+  }
+
+  db.close();
+  res.json({ assigned, skipped });
+});
+
+// Why a booking can't get a passcode right now - shared by both the single
+// and bulk routes below so the reasons staff see are always consistent.
+function passcodeEligibilityError(booking) {
+  if (!booking) return 'Booking not found';
+  if (booking.status === 'cancelled') return 'Booking is cancelled';
+  if (!booking.assigned_room) return 'No room assigned yet';
+  if (!booking.guest_name) return 'Guest name missing';
+  if (!booking.check_in || !booking.check_out) return 'Missing check-in/check-out dates';
+  return null;
+}
+
+// Individual "Generate Passcode" button, one booking at a time.
+app.post('/api/bookings/:bookingNumber/generate-passcode', requireAuth, async (req, res) => {
+  if (!createGuestPasscode) {
+    return res.status(500).json({ error: 'Lock passcode module is not available on this server.' });
+  }
+  const db = new Database(DB_PATH);
+  try {
+    const booking = db.prepare('SELECT * FROM bookings WHERE booking_number = ?').get(req.params.bookingNumber);
+    const eligibilityError = passcodeEligibilityError(booking);
+    if (eligibilityError) {
+      return res.status(400).json({ error: eligibilityError });
+    }
+    const result = await createGuestPasscode(booking.assigned_room, booking.guest_name, booking.check_in, booking.check_out);
+    res.json({ success: true, unit: result.unit, passcode: result.passcode, system: result.system, guestName: booking.guest_name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.close();
+  }
+});
+
+// Bulk "Generate All Passcodes" button for a whole day's worth of check-ins.
+// Bookings with no assigned_room yet are skipped (not blocked) - staff sees
+// exactly who was skipped and why, and can assign + retry individually.
+app.post('/api/generate-passcodes-day', requireAuth, async (req, res) => {
+  const { date } = req.body;
+  if (!date) {
+    return res.status(400).json({ error: 'date is required' });
+  }
+  if (!createGuestPasscode) {
+    return res.status(500).json({ error: 'Lock passcode module is not available on this server.' });
+  }
+
+  const db = new Database(DB_PATH);
+  let checkIns;
+  try {
+    checkIns = db
+      .prepare("SELECT * FROM bookings WHERE check_in = ? AND status != 'cancelled'")
+      .all(date);
+  } finally {
+    db.close();
+  }
+
+  const succeeded = [];
+  const skipped = [];
+  const failed = [];
+
+  // Sequential on purpose, not Promise.all: createGuestPasscode's collision
+  // ledger does a read-modify-write on issued-codes.json that isn't safe for
+  // concurrent calls (two simultaneous calls could both read the ledger
+  // before either writes back, silently losing one of the two entries).
+  for (const booking of checkIns) {
+    const eligibilityError = passcodeEligibilityError(booking);
+    if (eligibilityError) {
+      skipped.push({ bookingNumber: booking.booking_number, guestName: booking.guest_name, reason: eligibilityError });
+      continue;
+    }
+    try {
+      const result = await createGuestPasscode(booking.assigned_room, booking.guest_name, booking.check_in, booking.check_out);
+      succeeded.push({
+        bookingNumber: booking.booking_number,
+        guestName: booking.guest_name,
+        unit: result.unit,
+        passcode: result.passcode,
+        system: result.system,
+      });
+    } catch (err) {
+      failed.push({ bookingNumber: booking.booking_number, guestName: booking.guest_name, error: err.message });
+    }
+  }
+
+  res.json({ date, succeeded, skipped, failed });
+});
+
+// Manual trigger for the housekeeping checkout report - composes the exact
+// same message the 9PM auto-timer would (via the shared lib.js function), and
+// drops it in the same outbox for whatsapp-bot to pick up. Always allowed
+// regardless of whether the 9PM auto-send already fired today - this is
+// specifically for resending an updated list after a late change.
+app.post('/api/send-checkout-report', requireAuth, (req, res) => {
+  const db = new Database(DB_PATH);
+  try {
+    const now = new Date();
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const message = lib.composeCheckoutReport(db, todayIso);
+    lib.writeOutboxMessage(lib.CHECKOUT_REPORT_GROUP_JID, message);
+    res.json({ status: 'ok', message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.close();
+  }
+});
+
+app.get('/api/occupancy', requireAuth, (req, res) => {
+  const { start, end } = req.query;
+  const db = new Database(DB_PATH);
+  const rows = db.prepare("SELECT * FROM bookings WHERE status != 'cancelled'").all();
+  db.close();
+
+  const dayMap = {};
+  for (const dateStr of isoDateRange(start, end)) {
+    dayMap[dateStr] = { total: 0, byCategory: {}, byPlatform: {}, bookings: [] };
+  }
+
+  for (const row of rows) {
+    const nights = nightsBetweenIso(row.check_in, row.check_out);
+    const effectiveCategory = row.room_override || row.room_category;
+    for (const night of nights) {
+      if (dayMap[night]) {
+        dayMap[night].total += 1;
+        dayMap[night].byCategory[effectiveCategory || 'Unknown'] =
+          (dayMap[night].byCategory[effectiveCategory || 'Unknown'] || 0) + 1;
+        const platformKey = row.platform || 'manual';
+        dayMap[night].byPlatform[platformKey] = (dayMap[night].byPlatform[platformKey] || 0) + 1;
+
+        const isCheckInThisNight = row.check_in === night;
+        const remaining = nightsRemaining(night, row.check_out);
+        let stayStatus;
+        if (isCheckInThisNight) {
+          stayStatus = 'Check-in today';
+        } else if (remaining <= 1) {
+          stayStatus = '(last night)';
+        } else {
+          stayStatus = `${remaining} nights left`;
+        }
+
+        dayMap[night].bookings.push({
+          booking_number: row.booking_number,
+          guest_name: row.guest_name,
+          room_category: row.room_category,
+          room_override: row.room_override,
+          assigned_room: row.assigned_room,
+          room_number: row.room_number,
+          platform: row.platform,
+          status: row.status,
+          notes: row.notes,
+          check_in: row.check_in,
+          check_out: row.check_out,
+          stay_status: stayStatus,
+        });
+      }
+    }
+  }
+
+  const result = Object.entries(dayMap).map(([date, data]) => {
+    const categoryBreakdown = {};
+    for (const [category, capacity] of Object.entries(ROOM_POOLS)) {
+      const occupied = data.byCategory[category] || 0;
+      categoryBreakdown[category] = { occupied, capacity, full: occupied >= capacity };
+    }
+    return {
+      date,
+      total: data.total,
+      capacity: TOTAL_CAPACITY,
+      remaining: TOTAL_CAPACITY - data.total,
+      almostFull: TOTAL_CAPACITY - data.total <= ALMOST_FULL_THRESHOLD,
+      byCategory: categoryBreakdown,
+      byPlatform: {
+        'booking.com': data.byPlatform['booking.com'] || 0,
+        airbnb: data.byPlatform['airbnb'] || 0,
+        manual: data.byPlatform['manual'] || 0,
+      },
+      bookings: data.bookings,
+    };
+  });
+
+  res.json({ roomPools: ROOM_POOLS, totalCapacity: TOTAL_CAPACITY, days: result });
+});
+
+app.get('/api/pending', requireAuth, (req, res) => {
+  const db = lib.openDb();
+  const items = lib.getPendingQueue(db);
+  const counts = lib.getPendingCount(db);
+  db.close();
+  res.json({ counts, items });
+});
+
+app.post('/api/sync-now', requireAuth, async (req, res) => {
+  const result = await syncService.runSync();
+  res.json(result);
+});
+
+const { exec } = require('child_process');
+
+function runPm2Command(command) {
+  return new Promise((resolve, reject) => {
+    exec(command, (err, stdout, stderr) => {
+      if (err) reject(err);
+      else resolve(stdout);
+    });
+  });
+}
+
+app.get('/api/whatsapp-status', requireAuth, async (req, res) => {
+  try {
+    const output = await runPm2Command('pm2 jlist');
+    const list = JSON.parse(output);
+    const proc = list.find((p) => p.name === 'whatsapp-bot');
+    if (!proc) {
+      return res.json({ found: false, running: false });
+    }
+    res.json({ found: true, running: proc.pm2_env.status === 'online', status: proc.pm2_env.status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/whatsapp-toggle', requireAuth, async (req, res) => {
+  const { action } = req.body;
+  if (action !== 'start' && action !== 'stop') {
+    return res.status(400).json({ error: 'action must be "start" or "stop"' });
+  }
+  try {
+    await runPm2Command(`pm2 ${action} whatsapp-bot`);
+    res.json({ status: 'ok', action });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/sync-status', requireAuth, (req, res) => {
+  res.json(syncService.getSyncState());
+});
+
+app.post('/api/clear-errors', requireAuth, (req, res) => {
+  const db = lib.openDb();
+  const cleared = lib.clearAllErrors(db);
+  db.close();
+  res.json({ status: 'ok', cleared });
+});
+
+app.listen(PORT, () => {
+  console.log(`Bookings dashboard listening on port ${PORT}`);
+});
