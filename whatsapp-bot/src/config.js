@@ -9,6 +9,10 @@ function required(name) {
 }
 
 export const config = {
+  claude: {
+    apiKey: required('ANTHROPIC_API_KEY'),
+    model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5',
+  },
   gemini: {
     apiKey: required('GEMINI_API_KEY'),
     model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',

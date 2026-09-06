@@ -2,7 +2,7 @@
 import { createSender } from './sender.js';
 import { Debouncer, DelayedReplyScheduler } from './queue.js';
 import { extractMedia, handleMedia } from './mediaHandler.js';
-import { matchIntents } from './gemini.js';
+import { matchIntents } from './claude.js';
 import { TEMPLATE_BY_ID, UNMATCHED, HANDOFF_ACK_TEXT } from './templates.js';
 import { isGroupJid, jidToE164, formatSenderLabel } from './util.js';
 

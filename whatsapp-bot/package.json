@@ -1,7 +1,7 @@
 {
   "name": "swiss-garden-whatsapp-bot",
   "version": "1.0.0",
-  "description": "Custom WhatsApp guest-service bot for Swiss Garden Residences (Baileys + Gemini, deterministic JS control flow — AI only used for text-classification decisions).",
+  "description": "Custom WhatsApp guest-service bot for Swiss Garden Residences (Baileys + Claude for text classification + Gemini for photo/video/audio, deterministic JS control flow).",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -9,6 +9,7 @@
     "dev": "node --watch src/index.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
     "@google/genai": "^1.0.0",
     "@hapi/boom": "^10.0.1",
     "@whiskeysockets/baileys": "^7.0.0-rc14",
