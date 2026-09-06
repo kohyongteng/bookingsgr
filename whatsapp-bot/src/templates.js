@@ -212,6 +212,16 @@ To confirm luggage storage, please reply "Yes". Once confirmed, we will send you
     reply: `Quiet hours are from 10:00 PM to 8:00 AM. Please avoid loud noise, including TV or music. A RM100 penalty may be imposed by building management after a first warning.`,
   },
   {
+    id: 'qr_not_working',
+    matchWhen: 'Guest says the QR code is not working, not scanning, giving an error, or they cannot access the lobby/lift with it.',
+    reply:
+`Please double-check you're at the correct tower's lift first — this is the most common cause.
+
+If your room is in North Tower, please use the North Tower lift. If your room is in South Tower, please use the South Tower lift.
+
+If you're coming from the car park, please go to the lobby first, then switch to the correct tower's lift.`,
+  },
+  {
     id: 'door_lock_instructions',
     matchWhen: 'Guest asks how to unlock the unit door, or has trouble with the door lock/thumbprint scanner.',
     reply: `Please enter the door passcode followed by # to unlock. Do not press the thumbprint scanner — please enter the passcode number only.`,
