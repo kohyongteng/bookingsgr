@@ -179,6 +179,14 @@ Please note that we are a short-stay apartment, not a hotel, and we do not have 
 To confirm luggage storage, please reply "Yes". Once confirmed, we will send you the storage details and information. 😊 Thank you for your understanding!`,
   },
   {
+    id: 'extend_stay',
+    matchWhen: 'Guest asks about extending their stay for extra night(s) beyond their current booking.',
+    // NOTE: no fixed reply - confirming availability needs a human to check
+    // the calendar, so this is always forwarded to staff instead of getting
+    // an auto-reply (same as UNMATCHED). See handler.js.
+    reply: null,
+  },
+  {
     id: 'ac_not_working',
     matchWhen: 'Guest says the air-conditioning is not on, not working, or cannot be turned on.',
     reply:

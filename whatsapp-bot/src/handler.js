@@ -169,13 +169,22 @@ export function createHandler(sock) {
 
     const templateIds = await matchIntents({ text: combinedText });
     const hasUnmatched = templateIds.includes(UNMATCHED);
-    const matchedIds = templateIds.filter((id) => id !== UNMATCHED);
+    const wantsExtendStay = templateIds.includes('extend_stay');
+    const matchedIds = templateIds.filter((id) => id !== UNMATCHED && id !== 'extend_stay');
 
     if (hasUnmatched) {
       // Handoff rule: forward to staff immediately (whether or not other topics also matched).
       await sender.sendStaffText(
         config.staffGroupJid,
         `🚨 GUEST QUERY from ${formatSenderLabel(senderMeta.name, senderMeta.e164)}: ${combinedText}`
+      );
+    }
+
+    if (wantsExtendStay) {
+      // Availability needs a human to check the calendar - always forward, never auto-reply.
+      await sender.sendStaffText(
+        config.staffGroupJid,
+        `🗓️ EXTEND STAY REQUEST from ${formatSenderLabel(senderMeta.name, senderMeta.e164)}: ${combinedText}`
       );
     }
 
@@ -186,7 +195,7 @@ export function createHandler(sock) {
     // message so a multi-question burst (e.g. "car park?" + "wifi password?")
     // gets every answer instead of only the first match.
     const replyParts = matchedIds.map((id) => TEMPLATE_BY_ID[id].reply);
-    if (hasUnmatched) replyParts.push(HANDOFF_ACK_TEXT);
+    if (hasUnmatched || wantsExtendStay) replyParts.push(HANDOFF_ACK_TEXT);
 
     if (replyParts.length === 0) return; // shouldn't happen — matchIntents always returns at least one id
     const combinedReply = replyParts.join('\n\n');
