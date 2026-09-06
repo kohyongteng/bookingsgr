@@ -30,6 +30,8 @@ email-processor/detector_last_check.json
 email-processor/detector_airbnb_last_check.json
 email-processor/auth_alert_last_sent.json
 email-processor/checkout_report_last_sent.json
+email-processor/airbnb-chat-reply-state.json
+email-processor/airbnb-pending-approvals.json
 
 # --- One-off debug dumps from past troubleshooting (may contain real guest PII) ---
 email-processor/*.log

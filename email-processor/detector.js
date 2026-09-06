@@ -1,8 +1,10 @@
 process.chdir(__dirname); // ensure relative paths (credentials.json, token.json) resolve correctly under pm2
+require('dotenv').config(); // ANTHROPIC_API_KEY for airbnbClaude.js - must load before requiring it below
 
 const lib = require('./lib');
 const fs = require('fs');
 const path = require('path');
+const airbnbChatReply = require('./airbnbChatReply');
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const CHECKOUT_REPORT_HOUR = 21; // 9 PM local time
@@ -316,6 +318,8 @@ async function runAllCycles() {
   await runBookingComCycle();
   await runAirbnbCycle();
   await runCalendarSyncCycle();
+  await airbnbChatReply.runAirbnbChatReplyCycle();
+  await airbnbChatReply.checkAndSendApprovedAirbnbReplies();
 }
 
 // ---------- Data quality check (separate 6-hour timer, not part of the 5-min cycle) ----------

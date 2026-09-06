@@ -427,6 +427,32 @@ async function sendAlertEmail(gmail, to, subject, body) {
   await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
 }
 
+// Kept distinct from createRawEmail/sendAlertEmail above (those must stay
+// new-thread-only for admin alerts). This one replies WITHIN an existing
+// Gmail thread - required for a reply to actually relay into an Airbnb
+// guest's in-app chat. `to` must be the target message's OWN `Reply-To`
+// header (a unique per-message <hash>@reply.airbnb.com address, not a fixed
+// address - re-extract it fresh for every send) and `inReplyTo` its
+// `Message-Id`. See airbnbChatReply.js.
+function createThreadedRawEmail({ to, subject, inReplyTo, body }) {
+  const str = [
+    `To: ${to}`,
+    `In-Reply-To: ${inReplyTo}`,
+    `References: ${inReplyTo}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    'MIME-Version: 1.0',
+    `Subject: ${subject}`,
+    '',
+    body,
+  ].join('\n');
+  return Buffer.from(str).toString('base64url');
+}
+
+async function sendThreadedReply(gmail, { threadId, to, inReplyTo, subject, body }) {
+  const raw = createThreadedRawEmail({ to, subject, inReplyTo, body });
+  await gmail.users.messages.send({ userId: 'me', requestBody: { raw, threadId } });
+}
+
 // ---------- DATE HELPERS ----------
 function formatGmailDate(d) {
   const y = d.getFullYear();
@@ -679,6 +705,23 @@ function applyAirbnbUpdate(db, updateInfo) {
   }
 
   return { applied: true, confirmationCode: updateInfo.confirmationCode };
+}
+
+// Used by airbnbChatReply.js's technical-issue staff alert to name the room a
+// guest is actually in. Only reliably populated for guests currently checked
+// in (assigned once daily, externally, ~evening before/morning of check-in) -
+// callers must handle a null return (guest hasn't been assigned a room yet).
+function findAssignedRoomByGuestAndDates(db, { guestName, checkIn, checkOut }) {
+  const candidates = db
+    .prepare(
+      `SELECT guest_name, assigned_room FROM bookings
+       WHERE platform = 'airbnb' AND status != 'cancelled' AND check_in = ? AND check_out = ?`
+    )
+    .all(checkIn, checkOut);
+  const match = candidates.find(
+    (c) => (c.guest_name || '').trim().toLowerCase() === (guestName || '').trim().toLowerCase()
+  );
+  return match ? match.assigned_room : null;
 }
 
 // A pending change request that's older than 72 hours can never be matched
@@ -937,6 +980,7 @@ function checkoutReportNextIsoDay(iso) {
 }
 
 const CHECKOUT_REPORT_GROUP_JID = '120363402060306853@g.us'; // "Boston Check In Out"
+const STAFF_GROUP_JID = '120363405393193359@g.us'; // same group whatsapp-bot's config.staffGroupJid uses
 const OUTBOX_DIR = 'C:\\apps\\shared-data\\wa-outbox';
 
 // Shared with whatsapp-bot's gapCheck.js - it has no Gmail access of its own,
@@ -980,9 +1024,14 @@ function composeCheckoutReport(db, todayIso) {
 // folder on its own timer and has no idea what a "checkout report" even is,
 // it just sends whatever {groupJid, message} it finds. Keeps the bot dumb and
 // this feature entirely on the bookings side, per the agreed design.
+//
+// Filename is a generic "outbox-" prefix regardless of caller - it used to
+// be hardcoded "checkout-report-" for every message (including ones with
+// nothing to do with checkout reports), which made pm2 logs actively
+// misleading when diagnosing what was actually sent.
 function writeOutboxMessage(groupJid, message) {
   if (!fs.existsSync(OUTBOX_DIR)) fs.mkdirSync(OUTBOX_DIR, { recursive: true });
-  const filename = `checkout-report-${Date.now()}.json`;
+  const filename = `outbox-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.json`;
   fs.writeFileSync(path.join(OUTBOX_DIR, filename), JSON.stringify({ groupJid, message }), 'utf8');
   return filename;
 }
@@ -1009,6 +1058,7 @@ module.exports = {
   sleep,
   scrape,
   sendAlertEmail,
+  sendThreadedReply,
   formatGmailDate,
   toLocalISODate,
   upsertPendingQueue,
@@ -1027,9 +1077,11 @@ module.exports = {
   saveAirbnbCancellation,
   queueAirbnbChangeRequest,
   applyAirbnbUpdate,
+  findAssignedRoomByGuestAndDates,
   cleanupExpiredAirbnbChanges,
   checkDataQuality,
   composeCheckoutReport,
   writeOutboxMessage,
   CHECKOUT_REPORT_GROUP_JID,
+  STAFF_GROUP_JID,
 };

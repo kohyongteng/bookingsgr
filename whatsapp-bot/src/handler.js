@@ -1,4 +1,6 @@
-﻿import { config } from './config.js';
+﻿import fs from 'fs';
+import path from 'path';
+import { config } from './config.js';
 import { createSender } from './sender.js';
 import { Debouncer, DelayedReplyScheduler } from './queue.js';
 import { extractMedia, handleMedia } from './mediaHandler.js';
@@ -6,6 +8,29 @@ import { matchIntents } from './claude.js';
 import { checkAnswerableGap, writeGapAlert } from './gapCheck.js';
 import { TEMPLATE_BY_ID, UNMATCHED, HANDOFF_ACK_TEXT, LUGGAGE_STORAGE_CONFIRMED_TEXT } from './templates.js';
 import { isGroupJid, jidToE164, formatSenderLabel } from './util.js';
+
+// Shared with email-processor's airbnbChatReply.js - a staff "Proceed" reply
+// (quoting an Airbnb reply proposal) in the staff group writes a small file
+// here for that project's cycle to pick up. This bot stays otherwise "dumb"
+// about what the ref means, same as the wa-outbox design.
+const AIRBNB_APPROVALS_DIR = 'C:\\apps\\shared-data\\airbnb-approvals';
+
+/** Text of the quoted message a reply is responding to, or null if none. */
+function extractQuotedText(msg) {
+  const ctx =
+    msg.message?.extendedTextMessage?.contextInfo ||
+    msg.message?.imageMessage?.contextInfo ||
+    msg.message?.videoMessage?.contextInfo;
+  const quoted = ctx?.quotedMessage;
+  if (!quoted) return null;
+  return (
+    quoted.conversation ||
+    quoted.extendedTextMessage?.text ||
+    quoted.imageMessage?.caption ||
+    quoted.videoMessage?.caption ||
+    null
+  );
+}
 
 export function createHandler(sock) {
   const sender = createSender(sock);
@@ -250,9 +275,32 @@ export function createHandler(sock) {
     }
 
     // Groups: only the housekeeping/staff groups exist as groups in this workflow,
-    // and neither should ever drive guest-reply logic.
-    if (isGroupJid(jid)) return;
-    if (jid === config.housekeepingGroupJid || jid === config.staffGroupJid) return;
+    // and neither should ever drive guest-reply logic - EXCEPT one narrow
+    // case: a staff "Proceed" reply (quoting an Airbnb reply proposal) in the
+    // staff group, which approves a pending Airbnb chat-relay reply. See
+    // email-processor's airbnbChatReply.js for the other half of this loop.
+    if (isGroupJid(jid)) {
+      if (jid === config.staffGroupJid) {
+        const groupText = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+        if (/^proceed$/i.test(groupText.trim())) {
+          const quotedText = extractQuotedText(msg);
+          const refMatch = quotedText?.match(/\[ref:\s*([a-zA-Z0-9]+)\]/);
+          if (refMatch) {
+            const ref = refMatch[1];
+            if (!fs.existsSync(AIRBNB_APPROVALS_DIR)) fs.mkdirSync(AIRBNB_APPROVALS_DIR, { recursive: true });
+            fs.writeFileSync(
+              path.join(AIRBNB_APPROVALS_DIR, `approval-${Date.now()}.json`),
+              JSON.stringify({ ref, approvedAt: new Date().toISOString() }),
+              'utf8'
+            );
+            console.log(`[handler] Airbnb reply approved by staff: ref ${ref}`);
+          } else {
+            console.log('[handler] staff sent "Proceed" in staff group but no [ref: ...] found in the quoted message - ignoring');
+          }
+        }
+      }
+      return;
+    }
 
     if (msg.message?.protocolMessage || msg.message?.reactionMessage) return; // ignore edits/deletes/reactions
 
