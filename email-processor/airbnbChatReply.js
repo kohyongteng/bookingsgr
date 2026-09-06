@@ -22,7 +22,9 @@ const { TEMPLATE_BY_ID, UNMATCHED, TECHNICAL_ISSUE_TOPICS } = require('./airbnbT
 
 const STATE_PATH = path.join(__dirname, 'airbnb-chat-reply-state.json');
 const PENDING_APPROVALS_PATH = path.join(__dirname, 'airbnb-pending-approvals.json');
+const LAST_SCAN_PATH = path.join(__dirname, 'airbnb-chat-reply-last-scan.json');
 const APPROVALS_DIR = 'C:\\apps\\shared-data\\airbnb-approvals';
+const SCAN_OVERLAP_SEC = 60; // re-check the last minute of the previous window too, in case a message landed right at the boundary
 
 function loadJson(filePath, fallback) {
   if (!fs.existsSync(filePath)) return fallback;
@@ -150,17 +152,21 @@ async function runAirbnbChatReplyCycle() {
   }
 
   try {
-    // newer_than:1d - a message older than this is almost always past the
-    // guest's actual stay (they've likely already checked out), so
-    // proposing a reply at that point is pointless even if the quota had
-    // room to spare. Also keeps quota usage down (see the metadata-first
-    // fetch below for the other half of that fix) - state tracking means
-    // nothing is ever reprocessed regardless of window size, so narrowing
-    // this only risks a very late-arriving message being caught a cycle or
-    // two later, not missed outright.
+    // Incremental scan: only ask Gmail for threads touched since the last
+    // successful run (minus a small overlap buffer, in case a message
+    // landed right at the boundary), same pattern detector.js's other
+    // cycles already use (getLastCheckDate/saveLastCheckDate). This is what
+    // actually keeps quota usage low - not a fixed lookback window, which
+    // still re-lists every active thread on every run regardless of size.
+    // First run ever: no watermark yet, so look back 1 day to bootstrap.
+    const lastScan = loadJson(LAST_SCAN_PATH, null);
+    const afterSec = lastScan
+      ? Math.floor(lastScan.lastScanAt / 1000) - SCAN_OVERLAP_SEC
+      : Math.floor(now.getTime() / 1000) - 24 * 60 * 60;
+
     const listRes = await gmail.users.threads.list({
       userId: 'me',
-      q: 'subject:"Reservation for #" newer_than:1d',
+      q: `subject:"Reservation for #" after:${afterSec}`,
       maxResults: 50,
     });
     const threadRefs = listRes.data.threads || [];
@@ -289,6 +295,9 @@ async function runAirbnbChatReplyCycle() {
     }
 
     saveJson(STATE_PATH, state);
+    // Only advance the watermark on success - a failed cycle (e.g. quota
+    // error) should retry the SAME window next time, not silently skip it.
+    saveJson(LAST_SCAN_PATH, { lastScanAt: now.getTime() });
   } catch (err) {
     console.error(`[${now.toISOString()}] Airbnb chat reply cycle error:`, err.message);
   } finally {

@@ -318,11 +318,12 @@ async function runAllCycles() {
   await runBookingComCycle();
   await runAirbnbCycle();
   await runCalendarSyncCycle();
-  // Approval pickup stays here - cheap (0-1 pending items typically) and
-  // staff want fast turnaround. runAirbnbChatReplyCycle does NOT run here -
-  // see its own separate, staggered timer below; it scans many threads and
-  // was a major contributor to exhausting this project's shared Gmail
-  // per-minute quota when it ran in the same burst as the three cycles above.
+  // Now cheap enough to run in the shared cycle: an incremental after:<timestamp>
+  // query (see airbnbChatReply.js) only asks Gmail for threads touched since
+  // the last successful run, instead of re-listing every thread active in a
+  // fixed lookback window on every call - that fixed-window approach was the
+  // actual quota driver, not simply "running every 5 minutes".
+  await airbnbChatReply.runAirbnbChatReplyCycle();
   await airbnbChatReply.checkAndSendApprovedAirbnbReplies();
 }
 
@@ -474,15 +475,3 @@ setInterval(checkAndSendCheckoutReportIfDue, POLL_INTERVAL_MS);
 console.log(`Gap alert checker starting. Will check every ${POLL_INTERVAL_MS / 60000} minutes.`);
 checkAndSendGapAlerts();
 setInterval(checkAndSendGapAlerts, POLL_INTERVAL_MS);
-
-// Separate, less-frequent, staggered timer - scans many Gmail threads per
-// run, so it does NOT run inside runAllCycles's shared 5-minute burst (was a
-// major contributor to exhausting this project's Gmail per-minute quota).
-// The 90s initial delay keeps its first run from landing in the same
-// instant as runAllCycles's own immediate first call above.
-const AIRBNB_CHAT_REPLY_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
-console.log(`Airbnb chat reply scanner starting. Will check every ${AIRBNB_CHAT_REPLY_INTERVAL_MS / 60000} minutes.`);
-setTimeout(() => {
-  airbnbChatReply.runAirbnbChatReplyCycle();
-  setInterval(airbnbChatReply.runAirbnbChatReplyCycle, AIRBNB_CHAT_REPLY_INTERVAL_MS);
-}, 90 * 1000);
