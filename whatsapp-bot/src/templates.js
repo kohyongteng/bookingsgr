@@ -239,3 +239,25 @@ export const UNMATCHED = 'UNMATCHED';
 
 /** Fixed handoff acknowledgment sent to the guest when nothing matches (already includes " (bot)"). */
 export const HANDOFF_ACK_TEXT = 'Got it, forwarding to our team now 😊 (bot)';
+
+/**
+ * Sent to the guest once they CONFIRM they want luggage storage (after the
+ * luggage_storage template above asks them to confirm). See handler.js for
+ * the confirmation-detection flow.
+ */
+export const LUGGAGE_STORAGE_CONFIRMED_TEXT =
+`Hi! Please follow the instructions below for luggage storage:
+
+• Scan the QR code to access the lobby (each guest must scan individually).
+
+• The storeroom is located at South Tower, Level 12. Once inside the lift, scan the QR code and press Level 12.
+
+• When you arrive at Level 12, walk to the corridor with the large window. You will find the storeroom there.
+
+• The storeroom door passcode is 777.
+
+• Please use the colored ribbons provided on the table to tie your luggage handles together to avoid any mix-up.
+
+• The luggage storage fee is RM30. Kindly place the cash into the cash box, take a short video as proof, and send it to us. Thank you. 🙏
+
+We will send you the QR code for the South Tower Level 12 storeroom shortly.`;

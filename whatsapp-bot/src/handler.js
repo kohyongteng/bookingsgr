@@ -3,7 +3,7 @@ import { createSender } from './sender.js';
 import { Debouncer, DelayedReplyScheduler } from './queue.js';
 import { extractMedia, handleMedia } from './mediaHandler.js';
 import { matchIntents } from './claude.js';
-import { TEMPLATE_BY_ID, UNMATCHED, HANDOFF_ACK_TEXT } from './templates.js';
+import { TEMPLATE_BY_ID, UNMATCHED, HANDOFF_ACK_TEXT, LUGGAGE_STORAGE_CONFIRMED_TEXT } from './templates.js';
 import { isGroupJid, jidToE164, formatSenderLabel } from './util.js';
 
 export function createHandler(sock) {
@@ -55,6 +55,40 @@ export function createHandler(sock) {
       if (t && t >= sinceMs) return true;
     }
     return false;
+  }
+
+  // Guests who were just asked to confirm luggage storage (luggage_storage
+  // topic matched) but haven't replied yet - keyed by every known JID alias,
+  // value is the setTimeout handle so it can be cleared once confirmed.
+  // Auto-expires after 24h so a guest who never replies doesn't stay "pending" forever.
+  const pendingLuggageConfirmation = new Map();
+
+  function markLuggagePending(jid) {
+    clearLuggagePending(jid); // replace any earlier pending timer for this chat
+    const timeout = setTimeout(() => clearLuggagePending(jid), 24 * 60 * 60 * 1000);
+    for (const k of aliasKeysFor(jid)) pendingLuggageConfirmation.set(k, timeout);
+  }
+
+  function clearLuggagePending(jid) {
+    for (const k of aliasKeysFor(jid)) {
+      const timeout = pendingLuggageConfirmation.get(k);
+      if (timeout) clearTimeout(timeout);
+      pendingLuggageConfirmation.delete(k);
+    }
+  }
+
+  function isLuggagePending(jid) {
+    return aliasKeysFor(jid).some((k) => pendingLuggageConfirmation.has(k));
+  }
+
+  // Deliberately deterministic (not AI) - this gates sending storeroom access
+  // details (passcode, QR reminder), so a short unambiguous "yes"-shaped reply
+  // is required rather than an inferred intent. Checked per-line so a guest
+  // who sends "yes" and "please confirm" as two quick separate messages
+  // (combined by the debouncer) still matches.
+  const LUGGAGE_CONFIRM_REGEX = /^(yes|yeah|yep|yup|ok(ay)?|sure|confirm(ed)?|proceed|can)[\s!.,]*(please)?[\s!.,]*$/i;
+  function isLuggageConfirmation(text) {
+    return text.split('\n').some((line) => LUGGAGE_CONFIRM_REGEX.test(line.trim()));
   }
 
   async function sendGuestTextTracked(jid, text) {
@@ -120,6 +154,18 @@ export function createHandler(sock) {
 
     if (!combinedText.trim()) return; // nothing to match on (shouldn't normally happen)
 
+    // Luggage storage confirmation - checked before intent classification so a
+    // plain "yes" replying to our confirm-ask isn't sent through the classifier.
+    if (isLuggagePending(jid) && isLuggageConfirmation(combinedText)) {
+      clearLuggagePending(jid);
+      scheduleGuestReply(jid, guestLastMessageAt, LUGGAGE_STORAGE_CONFIRMED_TEXT);
+      await sender.sendStaffText(
+        config.staffGroupJid,
+        `📦 Luggage storage CONFIRMED by ${formatSenderLabel(senderMeta.name, senderMeta.e164)} — please send them the QR code for the South Tower Level 12 storeroom.`
+      );
+      return;
+    }
+
     const templateIds = await matchIntents({ text: combinedText });
     const hasUnmatched = templateIds.includes(UNMATCHED);
     const matchedIds = templateIds.filter((id) => id !== UNMATCHED);
@@ -131,6 +177,8 @@ export function createHandler(sock) {
         `🚨 GUEST QUERY from ${formatSenderLabel(senderMeta.name, senderMeta.e164)}: ${combinedText}`
       );
     }
+
+    if (matchedIds.includes('luggage_storage')) markLuggagePending(jid);
 
     // Combine every matched template's reply, plus the handoff ack if part of the
     // guest's message wasn't covered by any template — sent as ONE guest-facing
