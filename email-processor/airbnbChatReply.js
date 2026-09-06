@@ -150,28 +150,52 @@ async function runAirbnbChatReplyCycle() {
   }
 
   try {
+    // newer_than:3d, not 30d - state tracking means nothing is ever
+    // reprocessed regardless of window size, but scanning every thread
+    // touched in the last month on every cycle was a major contributor to
+    // exhausting this project's shared Gmail per-minute quota (see the
+    // comment above the metadata-first fetch below for the other half of
+    // that fix). 3 days comfortably covers a guest's actual stay window.
     const listRes = await gmail.users.threads.list({
       userId: 'me',
-      q: 'subject:"Reservation for #" newer_than:30d',
+      q: 'subject:"Reservation for #" newer_than:3d',
       maxResults: 50,
     });
     const threadRefs = listRes.data.threads || [];
 
     for (const ref of threadRefs) {
-      const { data: thread } = await gmail.users.threads.get({ userId: 'me', id: ref.id, format: 'full' });
-      const latest = latestInboxMessage(thread);
-      if (!latest) continue;
+      // Cheap first pass: metadata only (no message bodies), just enough to
+      // tell whether this thread has anything new since last cycle. Most
+      // threads are unchanged most cycles, so skipping the expensive
+      // full-body fetch here is what keeps this cycle within Gmail's
+      // per-minute quota - fetching format:'full' for every thread every 5
+      // minutes regardless of change is what was exhausting it before.
+      const { data: metaThread } = await gmail.users.threads.get({
+        userId: 'me',
+        id: ref.id,
+        format: 'metadata',
+        metadataHeaders: ['Subject', 'Reply-To', 'Message-Id'],
+      });
+      const metaLatest = latestInboxMessage(metaThread);
+      if (!metaLatest) continue;
 
-      const latestInternalDate = parseInt(latest.internalDate, 10);
-      const subject = getHeader(latest, 'Subject') || '';
-      const lastProcessed = state[thread.id];
+      const latestInternalDate = parseInt(metaLatest.internalDate, 10);
+      const subject = getHeader(metaLatest, 'Subject') || '';
+      const lastProcessed = state[ref.id];
       if (lastProcessed && lastProcessed.internalDate >= latestInternalDate) continue; // nothing new since last scan
 
       // Staff already replied via Gmail webmail since the last thing we saw?
-      if (hasSentMessageAfter(thread, lastProcessed ? lastProcessed.internalDate : 0)) {
-        recordState(thread.id, { internalDate: latestInternalDate, messageId: latest.id, subject, outcome: 'skipped-staff-replied-via-gmail' });
+      // (labelIds/internalDate are present on metadata fetches too - no need
+      // for the full body to answer this.)
+      if (hasSentMessageAfter(metaThread, lastProcessed ? lastProcessed.internalDate : 0)) {
+        recordState(ref.id, { internalDate: latestInternalDate, messageId: metaLatest.id, subject, outcome: 'skipped-staff-replied-via-gmail' });
         continue;
       }
+
+      // Something's actually new - now pay for the full body fetch.
+      const { data: thread } = await gmail.users.threads.get({ userId: 'me', id: ref.id, format: 'full' });
+      const latest = latestInboxMessage(thread);
+      if (!latest) continue;
 
       const { text: bodyText } = lib.extractBody(latest.payload);
       const bubbles = parseDigestBubbles(bodyText);
