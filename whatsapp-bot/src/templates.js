@@ -187,6 +187,36 @@ To confirm luggage storage, please reply "Yes". Once confirmed, we will send you
     reply: null,
   },
   {
+    id: 'smoking',
+    matchWhen: 'Guest asks where they can smoke, or about the smoking policy.',
+    reply: `No smoking is allowed in the room. Please use the staircase area for smoking.`,
+  },
+  {
+    id: 'ironing',
+    matchWhen: 'Guest asks about ironing or where to iron clothes.',
+    reply: `Please do not iron directly on the bed — an ironing board is provided for that.`,
+  },
+  {
+    id: 'towel_usage',
+    matchWhen: 'Guest asks whether towels can be used for cleaning, or about towel usage rules.',
+    reply: `Towels are for shower use only. Please use the kitchen cloth provided for cleaning.`,
+  },
+  {
+    id: 'max_occupancy',
+    matchWhen: 'Guest asks how many people are allowed to stay, or about bringing extra guests.',
+    reply: `The maximum occupancy is 6 persons. Over-occupancy is not allowed and may result in a penalty imposed by building management.`,
+  },
+  {
+    id: 'quiet_hours',
+    matchWhen: 'Guest asks about noise rules, quiet hours, or making noise late at night.',
+    reply: `Quiet hours are from 10:00 PM to 8:00 AM. Please avoid loud noise, including TV or music. A RM100 penalty may be imposed by building management after a first warning.`,
+  },
+  {
+    id: 'door_lock_instructions',
+    matchWhen: 'Guest asks how to unlock the unit door, or has trouble with the door lock/thumbprint scanner.',
+    reply: `Please enter the door passcode followed by # to unlock. Do not press the thumbprint scanner — please enter the passcode number only.`,
+  },
+  {
     id: 'ac_not_working',
     matchWhen: 'Guest says the air-conditioning is not on, not working, or cannot be turned on.',
     reply:

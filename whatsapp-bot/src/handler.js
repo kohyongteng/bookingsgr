@@ -3,6 +3,7 @@ import { createSender } from './sender.js';
 import { Debouncer, DelayedReplyScheduler } from './queue.js';
 import { extractMedia, handleMedia } from './mediaHandler.js';
 import { matchIntents } from './claude.js';
+import { checkAnswerableGap, writeGapAlert } from './gapCheck.js';
 import { TEMPLATE_BY_ID, UNMATCHED, HANDOFF_ACK_TEXT, LUGGAGE_STORAGE_CONFIRMED_TEXT } from './templates.js';
 import { isGroupJid, jidToE164, formatSenderLabel } from './util.js';
 
@@ -178,6 +179,23 @@ export function createHandler(sock) {
         config.staffGroupJid,
         `🚨 GUEST QUERY from ${formatSenderLabel(senderMeta.name, senderMeta.e164)}: ${combinedText}`
       );
+
+      // Background-only "you might be missing a template" signal - never
+      // blocks the guest reply. See gapCheck.js for why this stays silent on
+      // genuinely novel questions and only fires when the answer is already
+      // sitting in an existing template's text.
+      checkAnswerableGap({ text: combinedText })
+        .then((gap) => {
+          if (gap.answerable) {
+            writeGapAlert({
+              question: combinedText,
+              answer: gap.answer,
+              note: gap.note,
+              guestLabel: formatSenderLabel(senderMeta.name, senderMeta.e164),
+            });
+          }
+        })
+        .catch((err) => console.error('[handler] gap check failed:', err));
     }
 
     if (wantsExtendStay) {

@@ -2,6 +2,7 @@ process.chdir(__dirname); // ensure relative paths (credentials.json, token.json
 
 const lib = require('./lib');
 const fs = require('fs');
+const path = require('path');
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const CHECKOUT_REPORT_HOUR = 21; // 9 PM local time
@@ -415,6 +416,42 @@ async function checkAndSendCheckoutReportIfDue() {
   }
 }
 
+// whatsapp-bot's gapCheck.js has no Gmail access - it drops a JSON file here
+// per unmatched-but-actually-answerable guest question. Picked up and emailed
+// out on the same 5-minute cadence as the other cycles, then deleted so a
+// failed send retries next cycle instead of silently disappearing.
+async function checkAndSendGapAlerts() {
+  const now = new Date();
+  const dir = lib.GAP_ALERTS_DIR;
+  if (!fs.existsSync(dir)) return;
+
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+  if (files.length === 0) return;
+
+  for (const file of files) {
+    const fullPath = path.join(dir, file);
+    try {
+      const alert = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+      const gmail = lib.getGmailClient();
+      const subject = 'WhatsApp bot: possible missing template';
+      const body =
+        `A guest asked something that wasn't matched by any WhatsApp bot template, but looks ` +
+        `answerable from information you've already provided elsewhere:\n\n` +
+        `From: ${alert.guestLabel || '(unknown)'}\n` +
+        `Question: ${alert.question}\n\n` +
+        `Suggested answer: ${alert.answer}\n\n` +
+        `Why: ${alert.note || '(no note)'}\n\n` +
+        `Consider adding this as its own template in whatsapp-bot/src/templates.js so it's answered directly next time.`;
+      await lib.sendAlertEmail(gmail, ADMIN_EMAIL, subject, body);
+      fs.unlinkSync(fullPath);
+      console.log(`[${now.toISOString()}] Gap alert emailed and cleared: ${file}`);
+    } catch (err) {
+      console.error(`[${now.toISOString()}] Failed to process gap alert ${file}:`, err.message);
+      // leave the file in place - retried next cycle
+    }
+  }
+}
+
 console.log(`Detector starting. Will check every ${POLL_INTERVAL_MS / 60000} minutes.`);
 runAllCycles();
 setInterval(runAllCycles, POLL_INTERVAL_MS);
@@ -425,3 +462,7 @@ setInterval(runDataQualityCheck, DATA_QUALITY_INTERVAL_MS);
 
 console.log(`Checkout report timer starting. Will check every ${POLL_INTERVAL_MS / 60000} minutes, sends once during the ${CHECKOUT_REPORT_HOUR}:00 hour.`);
 setInterval(checkAndSendCheckoutReportIfDue, POLL_INTERVAL_MS);
+
+console.log(`Gap alert checker starting. Will check every ${POLL_INTERVAL_MS / 60000} minutes.`);
+checkAndSendGapAlerts();
+setInterval(checkAndSendGapAlerts, POLL_INTERVAL_MS);

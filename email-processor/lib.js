@@ -939,6 +939,10 @@ function checkoutReportNextIsoDay(iso) {
 const CHECKOUT_REPORT_GROUP_JID = '120363402060306853@g.us'; // "Boston Check In Out"
 const OUTBOX_DIR = 'C:\\apps\\shared-data\\wa-outbox';
 
+// Shared with whatsapp-bot's gapCheck.js - it has no Gmail access of its own,
+// so it drops a file here for detector.js's checkAndSendGapAlerts() to email out.
+const GAP_ALERTS_DIR = 'C:\\apps\\shared-data\\gap-alerts';
+
 // Builds the housekeeping WhatsApp message: tomorrow's check-outs by assigned
 // room, any unassigned ones flagged so nothing's silently missed, and the
 // day-after-tomorrow count for staffing/leave planning.
@@ -1013,6 +1017,7 @@ module.exports = {
   markPendingFailed,
   removeFromPendingQueue,
   clearAllErrors,
+  GAP_ALERTS_DIR,
   parseAirbnbNewBooking,
   parseAirbnbCancellation,
   parseAirbnbRiskCancellation,
