@@ -253,6 +253,7 @@ export const LUGGAGE_STORAGE_CONFIRMED_TEXT =
 • The storeroom is located at South Tower, Level 12. Once inside the lift, scan the QR code and press Level 12.
 
 • When you arrive at Level 12, walk to the corridor with the large window. You will find the storeroom there.
+https://drive.google.com/drive/folders/18gke67ZHkkTh6RIlMcjc8Z3eBFgwZqSj
 
 • The storeroom door passcode is 777.
 
