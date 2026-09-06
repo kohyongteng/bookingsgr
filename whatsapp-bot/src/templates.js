@@ -176,7 +176,7 @@ However, if you would like cleaning service, we can arrange it for you at an add
 
 Please note that we are a short-stay apartment, not a hotel, and we do not have a front desk to store luggage.
 
-If you would like to proceed with the luggage storage, please let us know. Once confirmed, we will send you the storage details and information. 😊 Thank you for your understanding!`,
+To confirm luggage storage, please reply "Yes". Once confirmed, we will send you the storage details and information. 😊 Thank you for your understanding!`,
   },
   {
     id: 'ac_not_working',

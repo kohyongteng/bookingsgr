@@ -82,11 +82,12 @@ export function createHandler(sock) {
   }
 
   // Deliberately deterministic (not AI) - this gates sending storeroom access
-  // details (passcode, QR reminder), so a short unambiguous "yes"-shaped reply
-  // is required rather than an inferred intent. Checked per-line so a guest
-  // who sends "yes" and "please confirm" as two quick separate messages
-  // (combined by the debouncer) still matches.
-  const LUGGAGE_CONFIRM_REGEX = /^(yes|yeah|yep|yup|ok(ay)?|sure|confirm(ed)?|proceed|can)[\s!.,]*(please)?[\s!.,]*$/i;
+  // details (passcode, QR reminder). The confirm-ask template now explicitly
+  // tells the guest to reply "Yes", so this only matches that instructed word
+  // (plus close variants) rather than guessing across a loose set of phrases.
+  // Checked per-line so a guest who sends "yes" and "please confirm" as two
+  // quick separate messages (combined by the debouncer) still matches.
+  const LUGGAGE_CONFIRM_REGEX = /^(yes|yeah|yep|yup|y)[\s!.,]*(please)?[\s!.,]*$/i;
   function isLuggageConfirmation(text) {
     return text.split('\n').some((line) => LUGGAGE_CONFIRM_REGEX.test(line.trim()));
   }
