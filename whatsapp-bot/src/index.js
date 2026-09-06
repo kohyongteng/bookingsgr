@@ -6,6 +6,15 @@ import { config } from './config.js';
 import { createHandler } from './handler.js';
 import { startOutboxWatcher } from './outboxWatcher.js';
 
+process.on('uncaughtException', (err) => {
+  console.error(`[FATAL][whatsapp-bot] Uncaught exception:`, err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error(`[FATAL][whatsapp-bot] Unhandled rejection:`, reason);
+  process.exit(1);
+});
+
 const logger = pino({ level: config.logLevel });
 
 async function start() {

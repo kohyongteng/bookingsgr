@@ -8,6 +8,15 @@ const path = require('path');
 const lib = require('../email-processor/lib');
 const syncService = require('../email-processor/sync-service');
 
+process.on('uncaughtException', (err) => {
+  console.error(`[FATAL][bookings-dashboard] Uncaught exception:`, err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error(`[FATAL][bookings-dashboard] Unhandled rejection:`, reason);
+  process.exit(1);
+});
+
 // Guest lock passcode generation - lives in a separate folder (C:\Lock\guest-passcode)
 // outside this project, since it was built/tested independently. Loaded defensively
 // so a missing/misconfigured lock module doesn't take down the whole dashboard - the

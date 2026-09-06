@@ -1,6 +1,15 @@
 const express = require('express');
 const puppeteer = require('puppeteer-core');
 
+process.on('uncaughtException', (err) => {
+  console.error(`[FATAL][scraper-service] Uncaught exception:`, err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error(`[FATAL][scraper-service] Unhandled rejection:`, reason);
+  process.exit(1);
+});
+
 const app = express();
 app.use(express.json());
 

@@ -5,6 +5,15 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const { checkDeviceOn, checkDeviceOnline } = require('./tuya-lib');
 
+process.on('uncaughtException', (err) => {
+  console.error(`[FATAL][checkout-switch-scan] Uncaught exception:`, err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error(`[FATAL][checkout-switch-scan] Unhandled rejection:`, reason);
+  process.exit(1);
+});
+
 // ---------- Config ----------
 const BOOKINGS_DB_PATH = 'C:\\apps\\shared-data\\bookings.db'; // same DB the booking system uses
 const UNIT_SWITCHES_PATH = path.join(__dirname, 'unit-switches.json');

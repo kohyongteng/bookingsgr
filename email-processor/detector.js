@@ -6,6 +6,15 @@ const fs = require('fs');
 const path = require('path');
 const airbnbChatReply = require('./airbnbChatReply');
 
+process.on('uncaughtException', (err) => {
+  console.error(`[FATAL][email-detector] Uncaught exception:`, err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error(`[FATAL][email-detector] Unhandled rejection:`, reason);
+  process.exit(1);
+});
+
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const CHECKOUT_REPORT_HOUR = 21; // 9 PM local time
 const CHECKOUT_REPORT_LAST_SENT_PATH = './checkout_report_last_sent.json';
