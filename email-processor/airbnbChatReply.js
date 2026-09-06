@@ -150,15 +150,17 @@ async function runAirbnbChatReplyCycle() {
   }
 
   try {
-    // newer_than:3d, not 30d - state tracking means nothing is ever
-    // reprocessed regardless of window size, but scanning every thread
-    // touched in the last month on every cycle was a major contributor to
-    // exhausting this project's shared Gmail per-minute quota (see the
-    // comment above the metadata-first fetch below for the other half of
-    // that fix). 3 days comfortably covers a guest's actual stay window.
+    // newer_than:1d - a message older than this is almost always past the
+    // guest's actual stay (they've likely already checked out), so
+    // proposing a reply at that point is pointless even if the quota had
+    // room to spare. Also keeps quota usage down (see the metadata-first
+    // fetch below for the other half of that fix) - state tracking means
+    // nothing is ever reprocessed regardless of window size, so narrowing
+    // this only risks a very late-arriving message being caught a cycle or
+    // two later, not missed outright.
     const listRes = await gmail.users.threads.list({
       userId: 'me',
-      q: 'subject:"Reservation for #" newer_than:3d',
+      q: 'subject:"Reservation for #" newer_than:1d',
       maxResults: 50,
     });
     const threadRefs = listRes.data.threads || [];
