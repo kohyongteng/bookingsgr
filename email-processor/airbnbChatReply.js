@@ -285,6 +285,18 @@ async function runAirbnbChatReplyCycle() {
         );
       }
 
+      // extend_stay has no fixed reply (see airbnbTemplates.js) - confirming
+      // availability needs a human to check the calendar, so it's always
+      // forwarded to staff directly rather than falling through matchedIds
+      // (which only proposes templates that actually have reply text).
+      const wantsExtendStay = templateIds.includes('extend_stay');
+      if (wantsExtendStay) {
+        lib.writeOutboxMessage(
+          lib.STAFF_GROUP_JID,
+          `📅 AIRBNB EXTEND STAY REQUEST from ${guestName} (${subject}): ${guestText}\n(Needs a human to check the calendar - no auto-reply sent.)`
+        );
+      }
+
       if (matchedIds.length > 0) {
         const replyBody = matchedIds.map((id) => TEMPLATE_BY_ID[id].reply).join('\n\n');
         const to = getHeader(latest, 'Reply-To');
@@ -319,6 +331,7 @@ async function runAirbnbChatReplyCycle() {
       if (matchedIds.length > 0) outcomeParts.push(`proposed:${matchedIds.join(',')}`);
       if (technicalIds.length > 0) outcomeParts.push(`technical-alert:${technicalIds.join(',')}`);
       if (hasUnmatched) outcomeParts.push('unmatched-alert');
+      if (wantsExtendStay) outcomeParts.push('extend-stay-alert');
       recordState(thread.id, {
         internalDate: latestInternalDate,
         messageId: latest.id,
