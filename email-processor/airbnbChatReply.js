@@ -245,9 +245,26 @@ async function runAirbnbChatReplyCycle() {
       console.log(`[${now.toISOString()}] Airbnb chat: new guest message in "${subject}" from ${guestName}: ${guestText}`);
 
       const templateIds = await airbnbClaude.matchIntents({ text: guestText });
-      const hasUnmatched = templateIds.includes(UNMATCHED);
-      const matchedIds = templateIds.filter((id) => id !== UNMATCHED && TEMPLATE_BY_ID[id]?.reply);
-      const technicalIds = templateIds.filter((id) => TECHNICAL_ISSUE_TOPICS.has(id));
+      const { checkIn, checkOut } = parseSubjectDates(subject, now);
+      // A "technical issue" alert (with room lookup) only makes sense once the
+      // guest has actually checked in and could be experiencing a real fault -
+      // e.g. "is the aircon centralised?" asked days before arrival is just an
+      // informational question, not a fault report. Downgrade any technical-topic
+      // match to a plain forwarded query (no auto-reply either) before check-in.
+      const isPreCheckIn = checkIn ? now < new Date(`${checkIn}T00:00:00`) : false;
+      const rawTechnicalIds = templateIds.filter((id) => TECHNICAL_ISSUE_TOPICS.has(id));
+      const technicalIds = isPreCheckIn ? [] : rawTechnicalIds;
+      const downgradedPreCheckIn = isPreCheckIn && rawTechnicalIds.length > 0;
+
+      const hasUnmatched = templateIds.includes(UNMATCHED) || downgradedPreCheckIn;
+      // A message that mentions a technical topic pre-check-in is usually a
+      // compound/ambiguous question (e.g. "will housekeeping come before we
+      // check in, and is the aircon centralised?") that other templates tend
+      // to also mismatch on - safer to forward the whole thing to staff than
+      // risk sending a partially-wrong auto-reply.
+      const matchedIds = downgradedPreCheckIn
+        ? []
+        : templateIds.filter((id) => id !== UNMATCHED && TEMPLATE_BY_ID[id]?.reply);
 
       if (hasUnmatched) {
         lib.writeOutboxMessage(
@@ -257,7 +274,6 @@ async function runAirbnbChatReplyCycle() {
       }
 
       if (technicalIds.length > 0) {
-        const { checkIn, checkOut } = parseSubjectDates(subject, now);
         let roomNote = 'room not yet determined';
         if (checkIn && checkOut) {
           const room = lib.findAssignedRoomByGuestAndDates(db, { guestName, checkIn, checkOut });
