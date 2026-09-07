@@ -123,9 +123,9 @@ Access is free, and please wear a swimsuit when using the pool. Enjoy your swim!
   },
   {
     id: 'early_arrival_qr',
-    matchWhen: 'Guest has already arrived early, or says they will arrive before the standard check-in time.',
+    matchWhen: 'Guest asks for a temporary QR code to access the lobby - whether because they are arriving early (before standard check-in time), or want to share/give a QR to someone else (family, friend, driver) joining them for lobby access.',
     reply:
-`If you arrive earlier, you can use this temperory QR to access the lobby lobby (scan individually)
+`If you arrive earlier, you can use this temporary QR to access the lobby (scan individually)
 https://drive.google.com/drive/folders/1mGPOy2DzOHJqCpJM4jIHMSRV_5UfHX6R`,
   },
   {
