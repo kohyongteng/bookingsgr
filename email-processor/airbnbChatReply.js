@@ -196,10 +196,15 @@ async function runAirbnbChatReplyCycle() {
       const lastProcessed = state[ref.id];
       if (lastProcessed && lastProcessed.internalDate >= latestInternalDate) continue; // nothing new since last scan
 
-      // Staff already replied via Gmail webmail since the last thing we saw?
+      // Has staff/our own system already replied to the guest's LATEST
+      // message? Must compare against latestInternalDate (the newest guest
+      // message), not lastProcessed.internalDate (our own last-checkpoint) -
+      // otherwise a SENT reply to an OLDER guest message (including our own
+      // auto-sent replies) would wrongly count as covering a brand new guest
+      // message that arrived afterward, silently skipping it forever.
       // (labelIds/internalDate are present on metadata fetches too - no need
       // for the full body to answer this.)
-      if (hasSentMessageAfter(metaThread, lastProcessed ? lastProcessed.internalDate : 0)) {
+      if (hasSentMessageAfter(metaThread, latestInternalDate)) {
         recordState(ref.id, { internalDate: latestInternalDate, messageId: metaLatest.id, subject, outcome: 'skipped-staff-replied-via-gmail' });
         continue;
       }
