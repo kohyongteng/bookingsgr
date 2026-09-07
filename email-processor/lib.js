@@ -246,9 +246,18 @@ function typeToBookingStatus(type) {
 // i.e. not already correctly reflected in the main bookings table.
 function upsertPendingQueue(db, candidate) {
   const mainRow = db.prepare('SELECT status FROM bookings WHERE booking_number = ?').get(candidate.bookingNumber);
+  // Multi-room bookings are saved as "<bookingNumber>-1", "<bookingNumber>-2", etc.
+  // (see saveMultiRoomBooking) - there is never a row with the plain booking number
+  // for those, so without this fallback this check always misses them and the
+  // detector re-queues an already-synced multi-room booking for rescraping forever.
+  // All rooms from one scrape share the same status, so checking one is sufficient.
+  const multiRoomRow = mainRow
+    ? null
+    : db.prepare('SELECT status FROM bookings WHERE booking_number LIKE ? LIMIT 1').get(`${candidate.bookingNumber}-%`);
+  const effectiveRow = mainRow || multiRoomRow;
   const expectedStatus = typeToBookingStatus(candidate.type);
 
-  if (mainRow && mainRow.status === expectedStatus) {
+  if (effectiveRow && effectiveRow.status === expectedStatus) {
     // Already correctly synced with this exact status - nothing to queue.
     return 'already-synced';
   }
