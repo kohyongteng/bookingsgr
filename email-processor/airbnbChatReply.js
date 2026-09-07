@@ -41,7 +41,11 @@ function saveJson(filePath, data) {
 
 // ---------- Digest body parsing ----------
 
-const ROLE_PATTERN = 'Booker|Host|Co-host';
+const ROLE_PATTERN = 'Booker|Guest|Host|Co-host';
+// Airbnb labels the guest's own bubble "Booker" in most threads, but "Guest"
+// turns up too (seen on a post-checkout thank-you message) - both mean the
+// same thing: this bubble is the guest talking, not staff.
+const GUEST_ROLES = new Set(['Booker', 'Guest']);
 
 // Airbnb's digest body lists every chat bubble so far, each as a
 // Name / Role / Message block. Splits on the known, fixed role tokens
@@ -210,7 +214,7 @@ async function runAirbnbChatReplyCycle() {
       const lastBubble = bubbles[bubbles.length - 1];
 
       // Already answered via Airbnb's own app, or nothing parseable - skip.
-      if (!lastBubble || lastBubble.role !== 'Booker') {
+      if (!lastBubble || !GUEST_ROLES.has(lastBubble.role)) {
         recordState(thread.id, {
           internalDate: latestInternalDate,
           messageId: latest.id,
