@@ -227,6 +227,21 @@ async function runAirbnbChatReplyCycle() {
       const guestName = lastBubble.name;
       const guestText = lastBubble.text;
 
+      // Airbnb represents an emoji reaction (thumbs-up, heart, etc. on a past
+      // message) as "Reacted <emoji> to "<quoted message>"" in the digest -
+      // this is not a new message and should never get a reply proposed.
+      if (/^Reacted\s+\S+\s+to\s+/i.test(guestText)) {
+        recordState(thread.id, {
+          internalDate: latestInternalDate,
+          messageId: latest.id,
+          subject,
+          guestName,
+          guestText,
+          outcome: 'skipped-reaction-only',
+        });
+        continue;
+      }
+
       console.log(`[${now.toISOString()}] Airbnb chat: new guest message in "${subject}" from ${guestName}: ${guestText}`);
 
       const templateIds = await airbnbClaude.matchIntents({ text: guestText });
