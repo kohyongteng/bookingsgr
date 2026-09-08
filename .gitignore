@@ -51,6 +51,9 @@ scraper-service/booking-*-page.txt
 # --- Boot/logon startup log (runtime output, regenerated on every restart) ---
 startup-boot.log
 
+# --- Backfill run logs (contain guest names + reservation figures) ---
+backfill-booking.log
+
 # --- Stale manual export ---
 whatsapp-bot/whatsapp-bot.tar.gz
 
