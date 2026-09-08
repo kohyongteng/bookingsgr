@@ -544,10 +544,19 @@ async function api(path, opts = {}) {
 function showLogin() {
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
+  // Hide again on logout, so the next (possibly non-admin) user doesn't
+  // inherit a visible Revenue tab from the previous session.
+  document.getElementById('revenueLink').style.display = 'none';
 }
 function showApp() {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  // Applied here rather than at each call site: the app is shown from both
+  // the login handler and the existing-session startup path, and putting the
+  // check in only one of them is exactly how the tab stayed invisible after
+  // a fresh login.
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  document.getElementById('revenueLink').style.display = isAdmin ? 'inline-block' : 'none';
 }
 
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
@@ -1457,9 +1466,6 @@ document.getElementById('printInvoiceBtn').addEventListener('click', () => {
     const data = await api('/api/me');
     currentUser = data.user;
     showApp();
-    if (currentUser && currentUser.role === 'admin') {
-      document.getElementById('revenueLink').style.display = '';
-    }
     loadCalendar();
     loadPendingStatus();
     loadWhatsappStatus();
