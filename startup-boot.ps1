@@ -19,6 +19,11 @@ function Write-Log($message) {
     Add-Content -Path $logPath -Value $line -Encoding utf8
 }
 
+# pm2 draws its status table with UTF-8 box-drawing characters. Without this,
+# PowerShell reads that output as the OEM codepage and the log fills with
+# mojibake - readable, but a mess to scan when diagnosing a failed restart.
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+
 Write-Log '--- startup-boot.ps1 starting ---'
 
 # Give Windows a moment to finish bringing up networking/disks before pm2 starts
@@ -33,17 +38,13 @@ try {
     Write-Log "pm2 resurrect output: $($pm2Out.Trim())"
 
     Start-Sleep -Seconds 5
-    $pm2List = & $pm2Cmd jlist 2>&1 | Out-String
-    try {
-        $procs = $pm2List | ConvertFrom-Json
-        $online = @($procs | Where-Object { $_.pm2_env.status -eq 'online' }).Count
-        $total = @($procs).Count
-        Write-Log "pm2 status: $online/$total online"
-        foreach ($p in $procs) {
-            Write-Log ("  - {0}: {1}" -f $p.name, $p.pm2_env.status)
-        }
-    } catch {
-        Write-Log "pm2 jlist could not be parsed: $_"
+    # Log `pm2 list` as plain text rather than parsing `pm2 jlist`: pm2's JSON
+    # embeds the process env, which on Windows contains both 'username' and
+    # 'USERNAME', and ConvertFrom-Json rejects the duplicate key outright. The
+    # text table carries the same status information and can't fail to parse.
+    $pm2List = & $pm2Cmd list 2>&1 | Out-String
+    foreach ($line in ($pm2List -split "`r?`n")) {
+        if ($line.Trim()) { Write-Log "  $line" }
     }
 } catch {
     Write-Log "ERROR running pm2 resurrect: $_"
