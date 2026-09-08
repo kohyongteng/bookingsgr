@@ -24,13 +24,15 @@
     z-index: 10;
   }
   header h1 { font-size: 17px; margin: 0; }
-  header button {
+  header button, header a {
     background: rgba(255,255,255,0.15);
     border: none;
     color: white;
     padding: 6px 12px;
     border-radius: 6px;
     font-size: 13px;
+    text-decoration: none;
+    display: inline-block;
   }
   #whatsappToggleBtn { font-weight: 600; }
 
@@ -358,6 +360,9 @@
   <header>
     <h1>Swiss Garden Bookings</h1>
     <div style="display:flex; align-items:center; gap:8px;">
+      <!-- Revenue is admin-only; the link is revealed after /api/me confirms
+           the role, so staff never see a tab they'd only get a 403 from. -->
+      <a id="revenueLink" href="/revenue.html" style="display:none;">Revenue</a>
       <button id="whatsappToggleBtn">WhatsApp: ...</button>
       <button id="logoutBtn">Logout</button>
     </div>
@@ -1452,6 +1457,9 @@ document.getElementById('printInvoiceBtn').addEventListener('click', () => {
     const data = await api('/api/me');
     currentUser = data.user;
     showApp();
+    if (currentUser && currentUser.role === 'admin') {
+      document.getElementById('revenueLink').style.display = '';
+    }
     loadCalendar();
     loadPendingStatus();
     loadWhatsappStatus();
