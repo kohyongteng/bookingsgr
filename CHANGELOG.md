@@ -101,6 +101,61 @@ as-is (2026-09-07): it already only fetches cheap metadata per message
 (full body only for cancellations, to get the guest name), so it was never the
 source of the quota problem and doesn't need the same rework.
 
+## Airbnb chat-relay bug fixes (2026-09-07)
+
+A run of real-world bugs found by watching the system handle live guest
+messages. Each was a case of a message being silently dropped or answered
+wrongly rather than anything crashing - which is exactly why they needed
+real traffic to surface:
+
+- **Guest bubbles labelled "Guest" were unparseable.** Airbnb usually labels
+  a guest's chat bubble "Booker", but sometimes uses "Guest". The parser only
+  knew "Booker", so those messages parsed to zero bubbles and were recorded as
+  "skipped-unparseable" - staff never saw them.
+- **Emoji reactions triggered replies.** A guest tapping 👍 on a past message
+  appears in the digest as `Reacted 👍 to "<quoted message>"`, which was being
+  classified and proposed as a "You're most welcome!" reply. Now skipped
+  before classification.
+- **Pre-check-in questions treated as faults.** "Is the aircon centralised?"
+  asked weeks before arrival matched `ac_not_working` and raised an urgent
+  technical-issue alert with a room lookup. Technical topics are now only
+  escalated once the guest has actually checked in; before that they're
+  forwarded to staff as a plain query, with the auto-reply suppressed (such
+  messages tend to be compound questions other templates also mismatch).
+- **extend_stay requests went completely silent.** The template deliberately
+  has no reply text (a human must check the calendar), but airbnbChatReply.js
+  never had the branch to forward it - so it fell out of every check and was
+  recorded as "no-action". Now forwarded to staff explicitly.
+- **Every message after the first auto-reply on a thread was swallowed.** The
+  "has this already been answered?" check compared against our own last
+  checkpoint rather than the guest's newest message, so once any reply had
+  been sent on a thread, every later guest message on it looked already-
+  answered. Fixed to compare against the newest guest message, matching the
+  already-correct logic in the approval re-verification path.
+- **early_arrival_qr vs qr_not_working mismatch.** A guest asking to share the
+  lobby QR with someone joining them was answered with wrong-tower-lift
+  troubleshooting. The template's match condition only covered "arriving
+  early"; broadened to cover sharing a QR for lobby access.
+
+## Restart resilience (2026-09-08)
+
+Nothing on this machine started automatically after a Windows restart - not
+pm2 (all 5 services) and not the Chrome instance the Booking.com scraper
+depends on. A reboot from a Windows update or power cut left the entire
+operation down until someone noticed and started it by hand.
+
+- `startup-boot.ps1` + a logon-triggered scheduled task (`SwissGarden-Startup`)
+  now run `pm2 resurrect` (restoring the process list saved by `pm2 save`) and
+  relaunch Chrome with its original localhost-only debug port and the same
+  profile that holds the Booking.com login. Everything is logged to
+  `startup-boot.log` so a failed restart can be diagnosed afterwards instead of
+  silently staying down.
+- Separately, `C:\Claude\start-claude.bat` (outside this repo, machine-specific)
+  is launched from the Windows Startup folder to reopen an interactive Claude
+  Code session at logon. It runs `cd /d C:\claude_folder` first because Claude
+  Code stores sessions per working directory - `--continue` only finds the
+  right session history when started from there.
+
 ## Error-logging audit and safety net (2026-09-07)
 
 Reviewed all 5 live pm2 services for error-handling/crash-visibility coverage.

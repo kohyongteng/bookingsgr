@@ -48,6 +48,9 @@ email-processor/sample-*.ics
 email-processor/*-diagnosis.txt
 scraper-service/booking-*-page.txt
 
+# --- Boot/logon startup log (runtime output, regenerated on every restart) ---
+startup-boot.log
+
 # --- Stale manual export ---
 whatsapp-bot/whatsapp-bot.tar.gz
 
