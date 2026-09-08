@@ -91,6 +91,36 @@ function parseMultiRoomItems(pageText) {
   return rooms;
 }
 
+// Booking.com's reservation page money block. Recorded for reporting only -
+// never used operationally, so returning null here must stay harmless.
+// Layout (verified against real saved page dumps):
+//   Total price             MYR 436.64
+//   Commissionable amount:  MYR 416.64
+//   Commission and charges: MYR 107.49
+function parseBookingFinancials(pageText) {
+  const num = (label) => {
+    const m = pageText.match(new RegExp(`${label}[^\\d]*MYR\\s*([\\d,]+\\.?\\d*)`, 'i'));
+    return m ? parseFloat(m[1].replace(/,/g, '')) : null;
+  };
+
+  const grossAmount = num('Total price');
+  const commissionable = num('Commissionable amount');
+  const commission = num('Commission and charges');
+  if (grossAmount == null) return null;
+
+  // Booking.com prints no single tax total, but commission applies to the room
+  // portion only - so the gap between total and commissionable amount is the
+  // non-commissionable tourism fee.
+  return {
+    currency: 'MYR',
+    roomFee: commissionable,
+    taxAmount: commissionable != null ? +(grossAmount - commissionable).toFixed(2) : null,
+    grossAmount,
+    platformFee: commission != null ? -Math.abs(commission) : null,
+    netPayout: commission != null ? +(grossAmount - commission).toFixed(2) : null,
+  };
+}
+
 app.post('/scrape', async (req, res) => {
   const { bookingLink } = req.body;
 
@@ -164,6 +194,9 @@ app.post('/scrape', async (req, res) => {
         bookingNumber: bookingNumberMatch ? bookingNumberMatch[1] : null,
         guestName: guestNameMatch ? guestNameMatch[1].trim() : null,
         rooms,
+        // One financial block covers the whole reservation, not per-room - the
+        // page prices the booking as a unit. Stored against the first sub-row.
+        financials: parseBookingFinancials(pageText),
       });
     }
 
@@ -199,6 +232,7 @@ app.post('/scrape', async (req, res) => {
       categoryPoolSize: matchedRoom ? matchedRoom.total : null,
       checkIn: dateMatch ? toISODate(dateMatch[1]) : null,
       checkOut: dateMatch ? toISODate(dateMatch[2]) : null,
+      financials: parseBookingFinancials(pageText),
     });
   } catch (err) {
     if (page) {

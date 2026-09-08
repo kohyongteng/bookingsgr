@@ -105,6 +105,21 @@ async function runSync() {
       } else {
         lib.saveBooking(db, item.booking_number, status, result);
       }
+
+      // Financials are reporting-only and must never break a sync: the booking
+      // itself is already saved above, so a missing/failed money block just
+      // leaves those columns null. Multi-room reservations are priced as a
+      // unit by Booking.com, so the block is stored against the first sub-row
+      // ("<number>-1") rather than duplicated across every room.
+      if (result.financials) {
+        try {
+          const target = result.multiRoom ? `${item.booking_number}-1` : item.booking_number;
+          lib.saveFinancials(db, target, result.financials, 'booking-scrape');
+        } catch (err) {
+          console.error(`Financials not saved for ${item.booking_number}: ${err.message}`);
+        }
+      }
+
       lib.removeFromPendingQueue(db, item.booking_number);
       syncState.processed++;
     }

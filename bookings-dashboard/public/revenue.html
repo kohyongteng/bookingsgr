@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Revenue - Swiss Garden</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f4f5f7;
+    color: #1b2747;
+  }
+  header {
+    background: #003580;
+    color: white;
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 { font-size: 17px; margin: 0; }
+  header a, header button {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  main { padding: 14px; max-width: 1100px; margin: 0 auto; }
+
+  .controls {
+    background: white; border-radius: 10px; padding: 12px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 14px;
+  }
+  .controls label { font-size: 12px; color: #556; display: block; margin-bottom: 4px; }
+  .controls input, .controls select {
+    padding: 8px; border: 1px solid #ccd3e0; border-radius: 6px; font-size: 14px;
+  }
+  .controls button {
+    background: #003580; color: white; border: none; padding: 9px 16px;
+    border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .controls button:disabled { background: #99a; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .card { background: white; border-radius: 10px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .card .label { font-size: 12px; color: #667; margin-bottom: 4px; }
+  .card .value { font-size: 20px; font-weight: 700; }
+  .card.net .value { color: #1e7e34; }
+  .card.fee .value { color: #c0392b; }
+
+  .notice {
+    background: #fff6e0; border: 1px solid #f0d9a0; color: #7a5c00;
+    padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 14px;
+  }
+  .error { background: #fdecea; border: 1px solid #e6a19a; color: #a3271b; }
+
+  table { width: 100%; border-collapse: collapse; background: white; font-size: 13px; }
+  .table-wrap { overflow-x: auto; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eef1f6; white-space: nowrap; }
+  th { background: #eef2fb; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; color: #445; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  .muted { color: #99a; font-style: italic; }
+  .neg { color: #c0392b; }
+  .pill { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: #eef2fb; color: #445; }
+  .pill.airbnb { background: #ffe8ec; color: #a3143a; }
+  .pill.bookingcom { background: #e3ecff; color: #003580; }
+  h2 { font-size: 14px; margin: 18px 0 8px; color: #445; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Revenue</h1>
+  <div>
+    <a href="/">&larr; Bookings</a>
+  </div>
+</header>
+
+<main>
+  <div id="gate" class="notice" style="display:none;"></div>
+
+  <div id="app" style="display:none;">
+    <div class="controls">
+      <div>
+        <label for="from">Check-out from</label>
+        <input type="date" id="from" />
+      </div>
+      <div>
+        <label for="to">Check-out to</label>
+        <input type="date" id="to" />
+      </div>
+      <div>
+        <label for="platform">Platform</label>
+        <select id="platform">
+          <option value="">All</option>
+          <option value="airbnb">Airbnb</option>
+          <option value="booking.com">Booking.com</option>
+          <option value="manual">Manual</option>
+        </select>
+      </div>
+      <button id="loadBtn">Load</button>
+    </div>
+
+    <div id="coverage" class="notice" style="display:none;"></div>
+
+    <div class="cards">
+      <div class="card"><div class="label">Guest paid (gross)</div><div class="value" id="cGross">-</div></div>
+      <div class="card"><div class="label">Tax collected</div><div class="value" id="cTax">-</div></div>
+      <div class="card fee"><div class="label">Platform fees</div><div class="value" id="cFee">-</div></div>
+      <div class="card net"><div class="label">Net payout</div><div class="value" id="cNet">-</div></div>
+      <div class="card"><div class="label">Bookings</div><div class="value" id="cCount">-</div></div>
+    </div>
+
+    <h2>By platform</h2>
+    <div class="table-wrap">
+      <table id="platformTable">
+        <thead><tr>
+          <th>Platform</th><th class="num">Bookings</th><th class="num">With data</th>
+          <th class="num">Gross</th><th class="num">Tax</th><th class="num">Fees</th><th class="num">Net</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <h2>Reservations</h2>
+    <div class="table-wrap">
+      <table id="rowsTable">
+        <thead><tr>
+          <th>Check-out</th><th>Booking</th><th>Platform</th><th>Guest</th><th>Room</th>
+          <th class="num">Gross</th><th class="num">Tax</th><th class="num">Fee</th><th class="num">Net</th><th>Source</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  function money(n) {
+    if (n == null) return '<span class="muted">-</span>';
+    const s = 'RM ' + Math.abs(n).toFixed(2);
+    return n < 0 ? '<span class="neg">-' + s + '</span>' : s;
+  }
+  function plainMoney(n) {
+    if (n == null) return '-';
+    return (n < 0 ? '-RM ' : 'RM ') + Math.abs(n).toFixed(2);
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function platformPill(p) {
+    const cls = p === 'airbnb' ? 'airbnb' : (p === 'booking.com' ? 'bookingcom' : '');
+    return '<span class="pill ' + cls + '">' + esc(p || '?') + '</span>';
+  }
+
+  // Default range: the current month, by check-out date.
+  function defaultRange() {
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    return { from: iso(first), to: iso(last) };
+  }
+
+  async function load() {
+    const btn = $('loadBtn');
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
+    try {
+      const from = $('from').value;
+      const to = $('to').value;
+      const res = await fetch('/api/revenue?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+      if (res.status === 403) { showGate('This page is restricted to admin accounts.'); return; }
+      if (res.status === 401) { showGate('Your session has expired. <a href="/">Log in again</a>.'); return; }
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+
+      const data = await res.json();
+      render(data);
+    } catch (err) {
+      $('coverage').className = 'notice error';
+      $('coverage').style.display = '';
+      $('coverage').textContent = 'Could not load revenue: ' + err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Load';
+    }
+  }
+
+  function render(data) {
+    const filter = $('platform').value;
+    const rows = filter ? data.rows.filter((r) => r.platform === filter) : data.rows;
+
+    // Recompute totals client-side so the platform filter is reflected.
+    const withData = rows.filter((r) => r.gross_amount != null);
+    const sum = (k) => withData.reduce((a, r) => a + (r[k] || 0), 0);
+
+    $('cGross').textContent = plainMoney(sum('gross_amount'));
+    $('cTax').textContent = plainMoney(sum('tax_amount'));
+    $('cFee').textContent = plainMoney(sum('platform_fee'));
+    $('cNet').textContent = plainMoney(sum('net_payout'));
+    $('cCount').textContent = rows.length;
+
+    // Coverage is stated explicitly - totals cover only bookings that actually
+    // have financial data, and silently implying otherwise would misreport.
+    const missing = rows.length - withData.length;
+    const cov = $('coverage');
+    if (missing > 0) {
+      cov.className = 'notice';
+      cov.style.display = '';
+      cov.innerHTML = '<strong>' + missing + ' of ' + rows.length + '</strong> reservation(s) in this range have no financial data yet, '
+        + 'so the totals above exclude them. Booking.com reservations only gain figures when they are next scraped.';
+    } else {
+      cov.style.display = 'none';
+    }
+
+    const ptb = $('platformTable').querySelector('tbody');
+    ptb.innerHTML = '';
+    Object.entries(data.byPlatform)
+      .filter(([p]) => !filter || p === filter)
+      .forEach(([p, v]) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + platformPill(p) + '</td>'
+          + '<td class="num">' + v.bookings + '</td>'
+          + '<td class="num">' + v.withFinancials + '</td>'
+          + '<td class="num">' + money(v.gross) + '</td>'
+          + '<td class="num">' + money(v.tax) + '</td>'
+          + '<td class="num">' + money(v.platformFee) + '</td>'
+          + '<td class="num">' + money(v.net) + '</td>';
+        ptb.appendChild(tr);
+      });
+
+    const rtb = $('rowsTable').querySelector('tbody');
+    rtb.innerHTML = '';
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + esc(r.check_out) + '</td>'
+        + '<td>' + esc(r.booking_number) + '</td>'
+        + '<td>' + platformPill(r.platform) + '</td>'
+        + '<td>' + esc(r.guest_name) + '</td>'
+        + '<td>' + esc(r.assigned_room || '-') + '</td>'
+        + '<td class="num">' + money(r.gross_amount) + '</td>'
+        + '<td class="num">' + money(r.tax_amount) + '</td>'
+        + '<td class="num">' + money(r.platform_fee) + '</td>'
+        + '<td class="num">' + money(r.net_payout) + '</td>'
+        + '<td>' + (r.financials_source ? esc(r.financials_source) : '<span class="muted">none</span>') + '</td>';
+      rtb.appendChild(tr);
+    }
+  }
+
+  function showGate(html) {
+    $('gate').style.display = '';
+    $('gate').innerHTML = html;
+    $('app').style.display = 'none';
+  }
+
+  (async function init() {
+    try {
+      const res = await fetch('/api/me');
+      if (!res.ok) { showGate('Please <a href="/">log in</a> to view this page.'); return; }
+      const { user } = await res.json();
+      if (user.role !== 'admin') {
+        showGate('This page is restricted to admin accounts. You are signed in as <strong>'
+          + esc(user.username) + '</strong> (' + esc(user.role) + ').');
+        return;
+      }
+      $('app').style.display = '';
+      const r = defaultRange();
+      $('from').value = r.from;
+      $('to').value = r.to;
+      $('loadBtn').addEventListener('click', load);
+      $('platform').addEventListener('change', load);
+      load();
+    } catch (err) {
+      showGate('Could not verify your session: ' + esc(err.message));
+    }
+  })();
+</script>
+</body>
+</html>

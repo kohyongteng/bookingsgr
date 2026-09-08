@@ -70,6 +70,14 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ error: 'Not logged in' });
 }
 
+// Revenue figures are admin-only. 403 (not 401) so the page can tell "you're
+// logged in but not allowed" apart from "your session expired".
+function requireAdmin(req, res, next) {
+  if (!req.session || !req.session.user) return res.status(401).json({ error: 'Not logged in' });
+  if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  return next();
+}
+
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   const users = getUsers();
@@ -88,6 +96,71 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/me', (req, res) => {
   if (req.session && req.session.user) return res.json({ user: req.session.user });
   res.status(401).json({ error: 'Not logged in' });
+});
+
+// --- Revenue reporting (admin only) ----------------------------------------
+// Rows are filtered by CHECK-OUT date: revenue is recognised when the stay
+// completes, which is also how the platforms pay out.
+app.get('/api/revenue', requireAdmin, (req, res) => {
+  const { from, to } = req.query;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(to || '')) {
+    return res.status(400).json({ error: 'from and to must be YYYY-MM-DD' });
+  }
+
+  const db = new Database(DB_PATH, { readonly: true });
+  try {
+    const rows = db.prepare(`
+      SELECT booking_number, platform, guest_name, check_in, check_out, assigned_room,
+             status, currency, room_fee, tax_amount, gross_amount, platform_fee,
+             net_payout, financials_source, financials_updated_at
+      FROM bookings
+      WHERE check_out >= ? AND check_out <= ? AND status != 'cancelled'
+      ORDER BY check_out, booking_number
+    `).all(from, to);
+
+    const withData = rows.filter((r) => r.gross_amount != null);
+    const sum = (k) => +withData.reduce((a, r) => a + (r[k] || 0), 0).toFixed(2);
+
+    const byPlatform = {};
+    for (const r of rows) {
+      const p = r.platform || 'unknown';
+      if (!byPlatform[p]) byPlatform[p] = { bookings: 0, withFinancials: 0, gross: 0, tax: 0, platformFee: 0, net: 0 };
+      byPlatform[p].bookings++;
+      if (r.gross_amount != null) {
+        byPlatform[p].withFinancials++;
+        byPlatform[p].gross += r.gross_amount || 0;
+        byPlatform[p].tax += r.tax_amount || 0;
+        byPlatform[p].platformFee += r.platform_fee || 0;
+        byPlatform[p].net += r.net_payout || 0;
+      }
+    }
+    for (const p of Object.values(byPlatform)) {
+      for (const k of ['gross', 'tax', 'platformFee', 'net']) p[k] = +p[k].toFixed(2);
+    }
+
+    res.json({
+      from,
+      to,
+      totals: {
+        bookings: rows.length,
+        withFinancials: withData.length,
+        // Surfaced so the page can show coverage honestly rather than implying
+        // these totals represent every booking in the range.
+        missingFinancials: rows.length - withData.length,
+        gross: sum('gross_amount'),
+        tax: sum('tax_amount'),
+        platformFee: sum('platform_fee'),
+        net: sum('net_payout'),
+      },
+      byPlatform,
+      rows,
+    });
+  } catch (err) {
+    console.error('[revenue] query failed:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.close();
+  }
 });
 
 app.get('/api/bookings', requireAuth, (req, res) => {

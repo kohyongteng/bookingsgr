@@ -230,6 +230,37 @@ function openDb() {
       PRIMARY KEY (booking_number, night_date)
     )
   `);
+
+  // --- Financial columns on bookings (added 2026-09-08) ---------------------
+  // Recorded for reporting/analysis only - nothing operational reads these, so
+  // a booking with no financials is still perfectly valid (and most historical
+  // rows will stay null). Amounts are REAL in the booking's own currency.
+  //
+  // Semantics, which differ slightly per platform - both are stored as
+  // "what the guest paid" / "what the platform took" / "what we receive":
+  //   Airbnb      gross = TOTAL(MYR), tax = Occupancy taxes,
+  //               platform_fee = Host service fee (negative), net = YOU EARN
+  //   Booking.com gross = Total price, tax = tourism fee portion,
+  //               platform_fee = Commission and charges (negative),
+  //               net = gross - commission
+  // platform_fee is stored NEGATIVE on both, so summing columns works directly.
+  const existingCols = new Set(db.prepare('PRAGMA table_info(bookings)').all().map((c) => c.name));
+  const financialCols = {
+    currency: 'TEXT',
+    room_fee: 'REAL',
+    tax_amount: 'REAL',
+    gross_amount: 'REAL',
+    platform_fee: 'REAL',
+    net_payout: 'REAL',
+    financials_source: 'TEXT', // 'airbnb-email' | 'booking-scrape' | 'manual'
+    financials_updated_at: 'TEXT',
+  };
+  for (const [name, type] of Object.entries(financialCols)) {
+    if (!existingCols.has(name)) {
+      db.exec(`ALTER TABLE bookings ADD COLUMN ${name} ${type}`);
+    }
+  }
+
   return db;
 }
 
@@ -398,6 +429,79 @@ function saveMultiRoomBooking(db, bookingNumber, status, result) {
       checkOut: room.checkOut,
     });
   });
+}
+
+// ---------- FINANCIALS ----------
+
+// Pulls "RM 1,234.56" (or "-RM 150.66") out of a string as a signed number.
+function parseMoney(str) {
+  if (str == null) return null;
+  const raw = String(str).replace(/,/g, '');
+  const m = raw.match(/-?\s*RM\s*(-?[\d.]+)/i);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (Number.isNaN(n)) return null;
+  return /-\s*RM/i.test(raw) ? -Math.abs(n) : n;
+}
+
+// Finds a labelled amount, tolerating the amount being on the same line or the
+// next one (Airbnb's plain-text mail wraps inconsistently between templates).
+function pickLabelledMoney(text, label) {
+  const sameLine = text.match(new RegExp(`${label}[^\\r\\n]*?(-?RM\\s*[\\d,.]+)`, 'i'));
+  if (sameLine) return parseMoney(sameLine[1]);
+  const nextLine = text.match(new RegExp(`${label}[^\\r\\n]*\\r?\\n\\s*(-?RM\\s*[\\d,.]+)`, 'i'));
+  return nextLine ? parseMoney(nextLine[1]) : null;
+}
+
+// Extracts the money block from an Airbnb "Reservation confirmed" host email.
+// Verified against real mail; see the layout note in openDb() for semantics.
+// Returns null when the email carries no recognisable payout block.
+function parseAirbnbFinancials(text) {
+  const codeMatch = text.match(/CONFIRMATION CODE\s*\r?\n\s*([A-Z0-9]{6,})/i);
+  const currencyMatch = text.match(/TOTAL\s*\(([A-Z]{3})\)/i);
+
+  const grossAmount = pickLabelledMoney(text, 'TOTAL\\s*\\([A-Z]{3}\\)');
+  const netPayout = pickLabelledMoney(text, 'YOU EARN');
+  // "4 nights room fee" but "1 night room fee" on single-night stays.
+  const roomFee = pickLabelledMoney(text, 'nights? room fee');
+  const taxAmount = pickLabelledMoney(text, 'Occupancy taxes');
+  let platformFee = pickLabelledMoney(text, 'Host service fee');
+  if (platformFee != null && platformFee > 0) platformFee = -platformFee; // always stored negative
+
+  if (!codeMatch || grossAmount == null || netPayout == null) return null;
+
+  return {
+    confirmationCode: codeMatch[1].trim(),
+    currency: currencyMatch ? currencyMatch[1].toUpperCase() : 'MYR',
+    roomFee,
+    taxAmount,
+    grossAmount,
+    platformFee,
+    netPayout,
+  };
+}
+
+// Writes financials onto an existing booking row. Deliberately does NOT create
+// a row - financials are supplementary to a booking the normal pipeline owns,
+// so a code with no matching booking is reported rather than silently inserted.
+function saveFinancials(db, bookingNumber, f, source) {
+  const result = db.prepare(`
+    UPDATE bookings SET
+      currency = ?, room_fee = ?, tax_amount = ?, gross_amount = ?,
+      platform_fee = ?, net_payout = ?, financials_source = ?,
+      financials_updated_at = CURRENT_TIMESTAMP
+    WHERE booking_number = ?
+  `).run(
+    f.currency || 'MYR',
+    f.roomFee ?? null,
+    f.taxAmount ?? null,
+    f.grossAmount ?? null,
+    f.platformFee ?? null,
+    f.netPayout ?? null,
+    source,
+    bookingNumber
+  );
+  return result.changes > 0;
 }
 
 // ---------- SCRAPER ----------
@@ -1063,6 +1167,9 @@ module.exports = {
   extractCancelledGuestName,
   saveBooking,
   saveMultiRoomBooking,
+  parseMoney,
+  parseAirbnbFinancials,
+  saveFinancials,
   randomDelayMs,
   sleep,
   scrape,
