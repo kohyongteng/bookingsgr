@@ -196,16 +196,44 @@ function generateOfflineCode(guestName, checkIn, db) {
   return candidate;
 }
 
+// Blank/absent money inputs must become NULL ("not recorded"), never 0 -
+// a recorded zero and an unknown amount mean different things on the
+// revenue page, which counts rows with no gross_amount as missing data.
+function money(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[^\d.-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+// Manual bookings are entered by hand, so the figures are whatever the user
+// typed. Fee is stored negative to match how the platform scrapers store it,
+// so the revenue columns can still be summed directly.
+function financialsFromBody(b) {
+  const gross = money(b.gross_amount);
+  const tax = money(b.tax_amount);
+  let fee = money(b.platform_fee);
+  if (fee != null && fee > 0) fee = -fee;
+  let net = money(b.net_payout);
+  if (net == null && gross != null) net = +(gross - Math.abs(fee || 0)).toFixed(2);
+  const anyProvided = [gross, tax, fee, net].some((v) => v != null);
+  return { gross, tax, fee, net, anyProvided };
+}
+
 app.post('/api/bookings', requireAuth, (req, res) => {
   const b = req.body;
   const db = new Database(DB_PATH);
   const bookingNumber = b.booking_number || generateOfflineCode(b.guest_name, b.check_in, db);
+  const f = financialsFromBody(b);
+
   const stmt = db.prepare(`
     INSERT INTO bookings (
       booking_number, platform, room_category, room_number,
-      guest_name, check_in, check_out, status, notes, updated_at
+      guest_name, check_in, check_out, status, notes, updated_at,
+      currency, gross_amount, tax_amount, platform_fee, net_payout,
+      financials_source, financials_updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP,
+            ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(booking_number) DO UPDATE SET
       room_category = excluded.room_category,
       room_number = excluded.room_number,
@@ -214,7 +242,14 @@ app.post('/api/bookings', requireAuth, (req, res) => {
       check_out = excluded.check_out,
       status = excluded.status,
       notes = excluded.notes,
-      updated_at = CURRENT_TIMESTAMP
+      updated_at = CURRENT_TIMESTAMP,
+      currency = excluded.currency,
+      gross_amount = excluded.gross_amount,
+      tax_amount = excluded.tax_amount,
+      platform_fee = excluded.platform_fee,
+      net_payout = excluded.net_payout,
+      financials_source = excluded.financials_source,
+      financials_updated_at = excluded.financials_updated_at
   `);
   stmt.run(
     bookingNumber,
@@ -225,7 +260,14 @@ app.post('/api/bookings', requireAuth, (req, res) => {
     b.check_in || null,
     b.check_out || null,
     b.status || 'new',
-    b.notes || null
+    b.notes || null,
+    f.anyProvided ? (b.currency || 'MYR') : null,
+    f.gross,
+    f.tax,
+    f.fee,
+    f.net,
+    f.anyProvided ? 'manual' : null,
+    f.anyProvided ? new Date().toISOString().replace('T', ' ').slice(0, 19) : null
   );
   db.close();
   res.json({ status: 'ok', booking_number: bookingNumber });
@@ -275,6 +317,36 @@ app.put('/api/bookings/:bookingNumber', requireAuth, (req, res) => {
     merged.notes,
     req.params.bookingNumber
   );
+
+  // Financials are updated separately and only when the request actually
+  // carried money fields - a partial update (saving just a note, or the
+  // auto-assign flow) must never blank out figures it didn't send.
+  const sentMoney = ['gross_amount', 'tax_amount', 'platform_fee', 'net_payout']
+    .some((k) => b[k] !== undefined);
+  if (sentMoney) {
+    const f = financialsFromBody(b);
+    const same =
+      f.gross === existing.gross_amount &&
+      f.tax === existing.tax_amount &&
+      f.fee === existing.platform_fee &&
+      f.net === existing.net_payout;
+    // Only stamp 'manual' when the numbers genuinely changed - re-saving an
+    // Airbnb/Booking.com booking from the form (which pre-fills the scraped
+    // values) must not relabel those figures as hand-entered.
+    if (!same) {
+      db.prepare(`
+        UPDATE bookings SET
+          currency = ?, gross_amount = ?, tax_amount = ?, platform_fee = ?, net_payout = ?,
+          financials_source = 'manual', financials_updated_at = CURRENT_TIMESTAMP
+        WHERE booking_number = ?
+      `).run(
+        b.currency || existing.currency || 'MYR',
+        f.gross, f.tax, f.fee, f.net,
+        req.params.bookingNumber
+      );
+    }
+  }
+
   db.close();
   res.json({ status: 'ok' });
 });

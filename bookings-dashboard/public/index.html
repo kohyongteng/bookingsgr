@@ -456,6 +456,23 @@
   </select>
   <label>Notes (e.g. early check-in)</label>
   <textarea id="f_notes" rows="3"></textarea>
+
+  <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e6eaf2;">
+    <div style="font-size:13px; font-weight:600; color:#445; margin-bottom:2px;">Payment (optional)</div>
+    <div style="font-size:11px; color:#889; margin-bottom:6px;">
+      Leave blank if not recorded. Blank is not the same as zero - blank means
+      "no figures yet" on the Revenue page.
+    </div>
+    <label>Received from guest (gross)</label>
+    <input type="number" step="0.01" min="0" id="f_gross_amount" placeholder="e.g. 450.00" />
+    <label>Tax included (tourism fee etc.)</label>
+    <input type="number" step="0.01" min="0" id="f_tax_amount" placeholder="e.g. 20.00" />
+    <label>Agent / platform fee (0 for direct bookings)</label>
+    <input type="number" step="0.01" min="0" id="f_platform_fee" placeholder="e.g. 0.00" />
+    <label>Net received <span style="font-weight:400; color:#889;">- auto-calculated, editable</span></label>
+    <input type="number" step="0.01" id="f_net_payout" placeholder="auto" />
+  </div>
+
   <button class="save-btn" id="saveBookingBtn">Save</button>
   </div>
 </div>
@@ -944,8 +961,21 @@ function openBookingForm(booking) {
   document.getElementById('f_check_out').value = booking ? (booking.check_out || '') : '';
   document.getElementById('f_status').value = booking ? (booking.status || 'new') : 'new';
   document.getElementById('f_notes').value = booking ? (booking.notes || '') : '';
+
+  // Money fields: show existing figures (whatever their source) so an edit
+  // round-trips them unchanged. Fee is stored negative but shown positive,
+  // since "fee: -55" reads oddly when typing one in by hand.
+  const numOrBlank = (v) => (v === null || v === undefined ? '' : v);
+  document.getElementById('f_gross_amount').value = booking ? numOrBlank(booking.gross_amount) : '';
+  document.getElementById('f_tax_amount').value = booking ? numOrBlank(booking.tax_amount) : '';
+  document.getElementById('f_platform_fee').value =
+    booking && booking.platform_fee != null ? Math.abs(booking.platform_fee) : '';
+  document.getElementById('f_net_payout').value = booking ? numOrBlank(booking.net_payout) : '';
+
   document.getElementById('bookingForm').classList.add('open');
   document.getElementById('bookingFormOverlay').classList.add('open');
+  // Re-arm the net auto-calculation for this booking (see wireNetAutoCalc).
+  document.getElementById('bookingForm').dispatchEvent(new Event('form-reset'));
 
   loadAvailableRooms(booking ? booking.assigned_room : null);
 }
@@ -954,6 +984,31 @@ function closeBookingForm() {
   document.getElementById('bookingForm').classList.remove('open');
   document.getElementById('bookingFormOverlay').classList.remove('open');
 }
+// Auto-fill net as gross minus fee, but stop once the user edits net by hand -
+// some bookings need a figure that isn't a plain subtraction, and silently
+// overwriting what they typed would be worse than not helping at all.
+(function wireNetAutoCalc() {
+  const gross = document.getElementById('f_gross_amount');
+  const fee = document.getElementById('f_platform_fee');
+  const net = document.getElementById('f_net_payout');
+  let netEditedByHand = false;
+
+  net.addEventListener('input', () => { netEditedByHand = true; });
+  const recalc = () => {
+    if (netEditedByHand) return;
+    const g = parseFloat(gross.value);
+    if (!Number.isFinite(g)) { net.value = ''; return; }
+    const f = Math.abs(parseFloat(fee.value) || 0);
+    net.value = (g - f).toFixed(2);
+  };
+  gross.addEventListener('input', recalc);
+  fee.addEventListener('input', recalc);
+
+  // Reopening the form for another booking must clear the "user typed it" flag,
+  // otherwise auto-calc stays dead for the rest of the session.
+  document.getElementById('bookingForm').addEventListener('form-reset', () => { netEditedByHand = false; });
+})();
+
 document.getElementById('closeBookingFormBtn').addEventListener('click', closeBookingForm);
 document.getElementById('bookingFormOverlay').addEventListener('click', closeBookingForm);
 
@@ -1003,6 +1058,10 @@ document.getElementById('saveBookingBtn').addEventListener('click', async () => 
     check_out: document.getElementById('f_check_out').value,
     status: document.getElementById('f_status').value,
     notes: document.getElementById('f_notes').value,
+    gross_amount: document.getElementById('f_gross_amount').value,
+    tax_amount: document.getElementById('f_tax_amount').value,
+    platform_fee: document.getElementById('f_platform_fee').value,
+    net_payout: document.getElementById('f_net_payout').value,
   };
   if (bookingNumber) {
     await api(`/api/bookings/${bookingNumber}`, { method: 'PUT', body: JSON.stringify(payload) });
