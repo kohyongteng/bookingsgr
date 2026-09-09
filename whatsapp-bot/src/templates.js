@@ -25,12 +25,18 @@ export const TEMPLATES = [
     matchWhen:
       'This is the guest\'s first message, or a generic greeting like "hi"/"hello", or they ' +
       'introduce themselves as arriving.',
-    // Deliberately no reply (disabled 2026-09-09 at the owner's request): the
-    // welcome/check-in message is no longer sent automatically on any channel.
-    // The id is KEPT so a bare "hi" still classifies as a greeting and is
-    // answered with silence - deleting it would let greetings fall through to
-    // casual_ack ("You're most welcome!") or UNMATCHED, both of which are worse.
-    reply: null,
+    // WhatsApp only, and ONLY on a guest's genuine first contact - handler.js
+    // drops this id for anyone already on record (see knownGuests.js), so a
+    // guest greeting us again mid-stay is not re-welcomed. The Airbnb copy of
+    // this template stays disabled: Airbnb sends its own automated welcome.
+    reply:
+`Welcome to Swiss Garden Residence by The Boston House! Check-in is from 3:00 PM, and check-out is at 11:00 AM. The lobby lift QR code and door passcode will be sent at 3:00 PM on the check-in day after identity verification.
+
+Send your Passport (or Malaysia Driving Licence/IC) via WhatsApp to +6011 5406 3854 for identity verification, as required by Malaysian law (Registration of Guests Act 1965, Act 381).
+
+Let us know your estimated arrival time for a smooth check-in.
+
+Thank you, and enjoy your stay!`,
   },
   {
     id: 'guest_id_received',

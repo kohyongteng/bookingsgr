@@ -8,6 +8,7 @@ import { matchIntents } from './claude.js';
 import { checkAnswerableGap, writeGapAlert } from './gapCheck.js';
 import { TEMPLATE_BY_ID, UNMATCHED, HANDOFF_ACK_TEXT, LUGGAGE_STORAGE_CONFIRMED_TEXT } from './templates.js';
 import { isGroupJid, jidToE164, formatSenderLabel } from './util.js';
+import { isFirstContact, markSeen } from './knownGuests.js';
 
 // Shared with email-processor's airbnbChatReply.js - a staff "Proceed" reply
 // (quoting an Airbnb reply proposal) in the staff group writes a small file
@@ -145,6 +146,19 @@ export function createHandler(sock) {
   async function processBatch(jid, batch) {
     const senderMeta = batch[batch.length - 1].sender; // most recent message's pushName/e164
 
+    // Captured and recorded up front, before any of the early returns below:
+    // a guest whose opening message is an ID photo or a plain question must
+    // still count as "seen", otherwise a later "hi" would look like first
+    // contact and trigger a welcome mid-conversation.
+    //
+    // Checked/recorded across EVERY known JID alias: the same chat reaches us
+    // as both @lid and @s.whatsapp.net (see rememberAlias), so keying on the
+    // raw jid alone would treat the second form as a new guest and welcome
+    // the same person twice.
+    const chatKeys = aliasKeysFor(jid);
+    const firstContact = chatKeys.every((k) => isFirstContact(k));
+    for (const k of chatKeys) markSeen(k);
+
     // Anchor point for the human-takeover check: anything a human sends after
     // the guest's last message means the conversation has been taken over.
     const guestLastMessageAt = batch[batch.length - 1].receivedAt ?? Date.now();
@@ -196,12 +210,18 @@ export function createHandler(sock) {
     const templateIds = await matchIntents({ text: combinedText });
     const hasUnmatched = templateIds.includes(UNMATCHED);
     const wantsExtendStay = templateIds.includes('extend_stay');
-    // Templates may deliberately carry no reply (e.g. new_guest, which is
-    // recognised so greetings classify correctly but is answered with silence).
-    // Filtering on .reply here is what stops those reaching the join() below
-    // and sending the literal text "null" to a guest.
+    // Two filters here:
+    //  - .reply guards templates that deliberately carry no text; without it a
+    //    null would reach the join() below and send the literal word "null".
+    //  - new_guest is the welcome/check-in message, and is only ever sent on a
+    //    guest's genuine first contact. Someone greeting us again mid-stay
+    //    still classifies as new_guest, but must not be re-welcomed.
     const matchedIds = templateIds.filter(
-      (id) => id !== UNMATCHED && id !== 'extend_stay' && TEMPLATE_BY_ID[id]?.reply
+      (id) =>
+        id !== UNMATCHED &&
+        id !== 'extend_stay' &&
+        TEMPLATE_BY_ID[id]?.reply &&
+        (id !== 'new_guest' || firstContact)
     );
 
     if (hasUnmatched) {
