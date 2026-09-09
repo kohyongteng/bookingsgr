@@ -25,19 +25,12 @@ export const TEMPLATES = [
     matchWhen:
       'This is the guest\'s first message, or a generic greeting like "hi"/"hello", or they ' +
       'introduce themselves as arriving.',
-    reply:
-`Welcome to Swiss Garden Residences by The Boston House! 😊
-
-Please send us a photo of your passport or Malaysian driving licence/IC via WhatsApp to +6011 5406 3854 for identity verification, as required under Malaysian law, Registration of Guests Act 1965 (Act 381).
-
-🕒 Check-in: From 3:00 PM
-🕚 Check-out: By 11:00 AM
-
-We will send your lobby QR code and door passcode at 3:00 PM on your check-in day, after verifying your ID.
-
-Let us know your estimated arrival time so we can assist you better.
-
-Thank you, and enjoy your stay! 🌟`,
+    // Deliberately no reply (disabled 2026-09-09 at the owner's request): the
+    // welcome/check-in message is no longer sent automatically on any channel.
+    // The id is KEPT so a bare "hi" still classifies as a greeting and is
+    // answered with silence - deleting it would let greetings fall through to
+    // casual_ack ("You're most welcome!") or UNMATCHED, both of which are worse.
+    reply: null,
   },
   {
     id: 'guest_id_received',

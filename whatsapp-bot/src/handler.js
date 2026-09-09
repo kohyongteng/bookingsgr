@@ -196,7 +196,13 @@ export function createHandler(sock) {
     const templateIds = await matchIntents({ text: combinedText });
     const hasUnmatched = templateIds.includes(UNMATCHED);
     const wantsExtendStay = templateIds.includes('extend_stay');
-    const matchedIds = templateIds.filter((id) => id !== UNMATCHED && id !== 'extend_stay');
+    // Templates may deliberately carry no reply (e.g. new_guest, which is
+    // recognised so greetings classify correctly but is answered with silence).
+    // Filtering on .reply here is what stops those reaching the join() below
+    // and sending the literal text "null" to a guest.
+    const matchedIds = templateIds.filter(
+      (id) => id !== UNMATCHED && id !== 'extend_stay' && TEMPLATE_BY_ID[id]?.reply
+    );
 
     if (hasUnmatched) {
       // Handoff rule: forward to staff immediately (whether or not other topics also matched).
