@@ -98,6 +98,148 @@ app.get('/api/me', (req, res) => {
   res.status(401).json({ error: 'Not logged in' });
 });
 
+// --- Room maintenance log ---------------------------------------------------
+// Every physical unit, flattened from the room registry. The registry's
+// "airbnbShared" maps room -> Airbnb listing number, so the KEYS are real
+// rooms and the values are listing ids - taking values here would put "06"
+// and "08" in the unit list.
+function allPhysicalRooms() {
+  const rooms = new Set();
+  for (const value of Object.values(ROOM_REGISTRY)) {
+    if (Array.isArray(value)) {
+      value.forEach((r) => rooms.add(r));
+    } else {
+      (value.dedicated || []).forEach((r) => rooms.add(r));
+      Object.keys(value.airbnbShared || {}).forEach((r) => rooms.add(r));
+    }
+  }
+  return [...rooms].sort();
+}
+
+app.get('/api/rooms', requireAuth, (req, res) => {
+  res.json({ rooms: allPhysicalRooms() });
+});
+
+app.get('/api/maintenance', requireAuth, (req, res) => {
+  const { room, from, to, status } = req.query;
+  const where = [];
+  const params = [];
+  if (room) { where.push('room_number = ?'); params.push(room); }
+  if (from) { where.push('event_date >= ?'); params.push(from); }
+  if (to) { where.push('event_date <= ?'); params.push(to); }
+  if (status) { where.push('status = ?'); params.push(status); }
+
+  const db = new Database(DB_PATH, { readonly: true });
+  try {
+    const rows = db.prepare(`
+      SELECT * FROM maintenance_records
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+      ORDER BY event_date DESC, id DESC
+    `).all(...params);
+
+    const openCount = rows.filter((r) => r.status === 'open').length;
+    res.json({ rows, counts: { total: rows.length, open: openCount, done: rows.length - openCount } });
+  } catch (err) {
+    console.error('[maintenance] list failed:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.close();
+  }
+});
+
+app.post('/api/maintenance', requireAuth, (req, res) => {
+  const { room_number, event_date, category, description, notes, status } = req.body;
+  if (!room_number || !event_date || !description || !String(description).trim()) {
+    return res.status(400).json({ error: 'room_number, event_date and description are required' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(event_date)) {
+    return res.status(400).json({ error: 'event_date must be YYYY-MM-DD' });
+  }
+  // Guard against typo'd unit numbers silently creating a phantom room whose
+  // history then never shows up when filtering by the real one.
+  if (!allPhysicalRooms().includes(room_number)) {
+    return res.status(400).json({ error: `Unknown room "${room_number}"` });
+  }
+
+  const db = new Database(DB_PATH);
+  try {
+    const info = db.prepare(`
+      INSERT INTO maintenance_records
+        (room_number, event_date, category, description, status, notes, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(
+      room_number,
+      event_date,
+      category || null,
+      String(description).trim(),
+      status === 'done' ? 'done' : 'open',
+      notes || null,
+      req.session.user.username
+    );
+    res.json({ status: 'ok', id: info.lastInsertRowid });
+  } catch (err) {
+    console.error('[maintenance] create failed:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.close();
+  }
+});
+
+app.put('/api/maintenance/:id', requireAuth, (req, res) => {
+  const b = req.body;
+  const db = new Database(DB_PATH);
+  try {
+    const existing = db.prepare('SELECT * FROM maintenance_records WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Record not found' });
+
+    // Same merge rule as bookings: only overwrite what was actually sent, so
+    // "mark as done" from the list can't blank the description.
+    const merged = {
+      room_number: b.room_number !== undefined ? b.room_number : existing.room_number,
+      event_date: b.event_date !== undefined ? b.event_date : existing.event_date,
+      category: b.category !== undefined ? b.category : existing.category,
+      description: b.description !== undefined ? b.description : existing.description,
+      status: b.status !== undefined ? b.status : existing.status,
+      notes: b.notes !== undefined ? b.notes : existing.notes,
+    };
+    if (!allPhysicalRooms().includes(merged.room_number)) {
+      return res.status(400).json({ error: `Unknown room "${merged.room_number}"` });
+    }
+
+    db.prepare(`
+      UPDATE maintenance_records SET
+        room_number = ?, event_date = ?, category = ?, description = ?,
+        status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      merged.room_number, merged.event_date, merged.category,
+      merged.description, merged.status, merged.notes, req.params.id
+    );
+    res.json({ status: 'ok' });
+  } catch (err) {
+    console.error('[maintenance] update failed:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.close();
+  }
+});
+
+// Deleting is admin-only: staff can log and resolve records, but removing
+// history outright is a bigger action than this log is meant to allow.
+app.delete('/api/maintenance/:id', requireAdmin, (req, res) => {
+  const db = new Database(DB_PATH);
+  try {
+    const info = db.prepare('DELETE FROM maintenance_records WHERE id = ?').run(req.params.id);
+    if (!info.changes) return res.status(404).json({ error: 'Record not found' });
+    res.json({ status: 'ok' });
+  } catch (err) {
+    console.error('[maintenance] delete failed:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.close();
+  }
+});
+
 // --- Revenue reporting (admin only) ----------------------------------------
 // Rows are filtered by CHECK-OUT date: revenue is recognised when the stay
 // completes, which is also how the platforms pay out.
@@ -803,6 +945,16 @@ app.post('/api/clear-errors', requireAuth, (req, res) => {
   db.close();
   res.json({ status: 'ok', cleared });
 });
+
+// Run the shared schema migrations once at startup. This project queries the
+// database with its own `new Database(DB_PATH)` handles rather than
+// lib.openDb(), so without this the maintenance table would only appear
+// whenever email-detector happened to run first.
+try {
+  lib.openDb().close();
+} catch (err) {
+  console.error('[startup] schema migration failed:', err.message);
+}
 
 app.listen(PORT, () => {
   console.log(`Bookings dashboard listening on port ${PORT}`);

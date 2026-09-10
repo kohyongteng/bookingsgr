@@ -231,6 +231,28 @@ function openDb() {
     )
   `);
 
+  // Room maintenance log (added 2026-09-10). Independent of bookings - a unit
+  // can need work whether or not anyone is staying in it - so this is its own
+  // table keyed by physical room number rather than a booking.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS maintenance_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_number TEXT NOT NULL,
+      event_date TEXT NOT NULL,
+      category TEXT,
+      description TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      notes TEXT,
+      created_by TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  // The two ways this table is read: "everything for one unit" and
+  // "everything in a date range".
+  db.exec('CREATE INDEX IF NOT EXISTS idx_maintenance_room ON maintenance_records(room_number)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_maintenance_date ON maintenance_records(event_date)');
+
   // --- Financial columns on bookings (added 2026-09-08) ---------------------
   // Recorded for reporting/analysis only - nothing operational reads these, so
   // a booking with no financials is still perfectly valid (and most historical

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Maintenance - Swiss Garden</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f4f5f7;
+    color: #1b2747;
+  }
+  header {
+    background: #003580; color: white; padding: 14px 16px;
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 17px; margin: 0; }
+  header a {
+    background: rgba(255,255,255,0.15); border: none; color: white;
+    padding: 6px 12px; border-radius: 6px; font-size: 13px; text-decoration: none;
+  }
+  main { padding: 14px; max-width: 1000px; margin: 0 auto; }
+
+  .panel {
+    background: white; border-radius: 10px; padding: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 14px;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 10px; color: #445; }
+  label { display: block; font-size: 12px; color: #667; margin: 8px 0 4px; }
+  input, select, textarea {
+    width: 100%; padding: 9px; border: 1px solid #ccd3e0;
+    border-radius: 6px; font-size: 14px; font-family: inherit;
+  }
+  textarea { resize: vertical; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 150px; }
+  button.primary {
+    background: #003580; color: white; border: none; padding: 10px 18px;
+    border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 12px;
+  }
+  button.primary:disabled { background: #99a; }
+
+  .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .filters > div { flex: 1 1 130px; }
+  .filters label { margin-top: 0; }
+  .filters button {
+    background: #eef2fb; color: #003580; border: none; padding: 9px 14px;
+    border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+
+  .counts { font-size: 13px; color: #556; margin-bottom: 10px; }
+  .counts strong { color: #1b2747; }
+
+  .rec {
+    border: 1px solid #e6eaf2; border-radius: 8px; padding: 10px 12px;
+    margin-bottom: 8px; background: white;
+  }
+  .rec.done { opacity: .62; background: #fafbfc; }
+  .rec-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .rec-room { font-weight: 700; font-size: 15px; }
+  .rec-date { font-size: 12px; color: #667; }
+  .rec-desc { margin: 6px 0 4px; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+  .rec-notes { font-size: 12px; color: #667; white-space: pre-wrap; word-break: break-word; }
+  .rec-meta { font-size: 11px; color: #99a; margin-top: 6px; }
+  .rec-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .rec-actions button {
+    font-size: 12px; padding: 5px 10px; border-radius: 6px; border: none;
+    cursor: pointer; font-weight: 600;
+  }
+  .btn-done { background: #1e7e34; color: white; }
+  .btn-reopen { background: #eef2fb; color: #003580; }
+  .btn-del { background: #c0392b; color: white; }
+
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+  .pill.open { background: #fff1e0; color: #9a5b00; }
+  .pill.done { background: #e8f5ec; color: #1e7e34; }
+  .pill.cat { background: #eef2fb; color: #445; font-weight: 400; margin-left: 6px; }
+
+  .notice {
+    background: #fff6e0; border: 1px solid #f0d9a0; color: #7a5c00;
+    padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 12px;
+  }
+  .notice.error { background: #fdecea; border-color: #e6a19a; color: #a3271b; }
+  .empty { color: #99a; font-style: italic; padding: 12px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Room Maintenance</h1>
+  <a href="/">&larr; Bookings</a>
+</header>
+
+<main>
+  <div id="gate" class="notice" style="display:none;"></div>
+
+  <div id="app" style="display:none;">
+    <div id="msg" class="notice" style="display:none;"></div>
+
+    <div class="panel">
+      <h2>Add record</h2>
+      <div class="row">
+        <div>
+          <label for="room">Unit number</label>
+          <select id="room"></select>
+        </div>
+        <div>
+          <label for="date">Date</label>
+          <input type="date" id="date" />
+        </div>
+        <div>
+          <label for="category">Category</label>
+          <select id="category">
+            <option value="">(none)</option>
+            <option>Aircon</option>
+            <option>Plumbing</option>
+            <option>Electrical</option>
+            <option>Furniture</option>
+            <option>Appliance</option>
+            <option>Door / Lock</option>
+            <option>Cleaning</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+      <label for="desc">Event</label>
+      <textarea id="desc" rows="2" placeholder="e.g. Aircon not cooling, technician replaced capacitor"></textarea>
+      <label for="notes">Notes (optional)</label>
+      <textarea id="notes" rows="2" placeholder="e.g. cost, vendor, follow-up needed"></textarea>
+      <button class="primary" id="addBtn">Add record</button>
+    </div>
+
+    <div class="panel">
+      <h2>Records</h2>
+      <div class="filters">
+        <div>
+          <label for="fRoom">Unit</label>
+          <select id="fRoom"><option value="">All units</option></select>
+        </div>
+        <div>
+          <label for="fFrom">From</label>
+          <input type="date" id="fFrom" />
+        </div>
+        <div>
+          <label for="fTo">To</label>
+          <input type="date" id="fTo" />
+        </div>
+        <div>
+          <label for="fStatus">Status</label>
+          <select id="fStatus">
+            <option value="">All</option>
+            <option value="open">Open</option>
+            <option value="done">Done</option>
+          </select>
+        </div>
+        <div style="flex:0 0 auto;"><button id="clearBtn">Clear</button></div>
+      </div>
+      <div class="counts" id="counts" style="margin-top:12px;"></div>
+      <div id="list"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let currentUser = null;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function flash(text, isError) {
+    const m = $('msg');
+    m.className = 'notice' + (isError ? ' error' : '');
+    m.textContent = text;
+    m.style.display = '';
+    clearTimeout(flash._t);
+    flash._t = setTimeout(() => { m.style.display = 'none'; }, 4000);
+  }
+  async function api(path, opts) {
+    const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).error || msg; } catch (e) {}
+      throw new Error(msg);
+    }
+    return res.json();
+  }
+
+  function todayISO() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  async function loadRooms() {
+    const { rooms } = await api('/api/rooms');
+    $('room').innerHTML = rooms.map((r) => `<option>${esc(r)}</option>`).join('');
+    $('fRoom').innerHTML = '<option value="">All units</option>' + rooms.map((r) => `<option>${esc(r)}</option>`).join('');
+  }
+
+  async function loadList() {
+    const qs = new URLSearchParams();
+    if ($('fRoom').value) qs.set('room', $('fRoom').value);
+    if ($('fFrom').value) qs.set('from', $('fFrom').value);
+    if ($('fTo').value) qs.set('to', $('fTo').value);
+    if ($('fStatus').value) qs.set('status', $('fStatus').value);
+
+    try {
+      const data = await api('/api/maintenance?' + qs.toString());
+      $('counts').innerHTML =
+        `<strong>${data.counts.total}</strong> record(s) &middot; ` +
+        `<strong>${data.counts.open}</strong> open &middot; ${data.counts.done} done`;
+      render(data.rows);
+    } catch (err) {
+      $('list').innerHTML = '';
+      flash('Could not load records: ' + err.message, true);
+    }
+  }
+
+  function render(rows) {
+    const list = $('list');
+    if (!rows.length) { list.innerHTML = '<div class="empty">No records match these filters.</div>'; return; }
+    const isAdmin = currentUser && currentUser.role === 'admin';
+
+    list.innerHTML = rows.map((r) => {
+      const done = r.status === 'done';
+      return `
+        <div class="rec ${done ? 'done' : ''}">
+          <div class="rec-top">
+            <div>
+              <span class="rec-room">${esc(r.room_number)}</span>
+              <span class="pill ${done ? 'done' : 'open'}">${done ? 'Done' : 'Open'}</span>
+              ${r.category ? `<span class="pill cat">${esc(r.category)}</span>` : ''}
+            </div>
+            <div class="rec-date">${esc(r.event_date)}</div>
+          </div>
+          <div class="rec-desc">${esc(r.description)}</div>
+          ${r.notes ? `<div class="rec-notes">${esc(r.notes)}</div>` : ''}
+          <div class="rec-meta">
+            logged by ${esc(r.created_by || 'unknown')}${r.created_at ? ' on ' + esc(String(r.created_at).slice(0, 16)) : ''}
+          </div>
+          <div class="rec-actions">
+            <button class="${done ? 'btn-reopen' : 'btn-done'}" data-act="${done ? 'reopen' : 'done'}" data-id="${r.id}">
+              ${done ? 'Reopen' : 'Mark done'}
+            </button>
+            ${isAdmin ? `<button class="btn-del" data-act="delete" data-id="${r.id}">Delete</button>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  $('list').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const { act, id } = btn.dataset;
+    btn.disabled = true;
+    try {
+      if (act === 'delete') {
+        if (!confirm('Delete this maintenance record permanently?')) { btn.disabled = false; return; }
+        await api('/api/maintenance/' + id, { method: 'DELETE' });
+        flash('Record deleted.');
+      } else {
+        await api('/api/maintenance/' + id, {
+          method: 'PUT',
+          body: JSON.stringify({ status: act === 'done' ? 'done' : 'open' }),
+        });
+      }
+      await loadList();
+    } catch (err) {
+      flash('Failed: ' + err.message, true);
+      btn.disabled = false;
+    }
+  });
+
+  $('addBtn').addEventListener('click', async () => {
+    const btn = $('addBtn');
+    const description = $('desc').value.trim();
+    if (!description) { flash('Please describe the event.', true); return; }
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    try {
+      await api('/api/maintenance', {
+        method: 'POST',
+        body: JSON.stringify({
+          room_number: $('room').value,
+          event_date: $('date').value,
+          category: $('category').value || null,
+          description,
+          notes: $('notes').value.trim() || null,
+        }),
+      });
+      // Keep the unit and date - logging several events for the same unit on
+      // the same visit is the common case.
+      $('desc').value = '';
+      $('notes').value = '';
+      flash('Record added.');
+      await loadList();
+    } catch (err) {
+      flash('Could not save: ' + err.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Add record';
+    }
+  });
+
+  ['fRoom', 'fFrom', 'fTo', 'fStatus'].forEach((id) =>
+    $(id).addEventListener('change', loadList));
+  $('clearBtn').addEventListener('click', () => {
+    $('fRoom').value = ''; $('fFrom').value = ''; $('fTo').value = ''; $('fStatus').value = '';
+    loadList();
+  });
+
+  (async function init() {
+    try {
+      const me = await api('/api/me');
+      currentUser = me.user;
+    } catch (err) {
+      $('gate').style.display = '';
+      $('gate').innerHTML = 'Please <a href="/">log in</a> to view this page.';
+      return;
+    }
+    $('app').style.display = '';
+    $('date').value = todayISO();
+    try {
+      await loadRooms();
+      await loadList();
+    } catch (err) {
+      flash('Startup failed: ' + err.message, true);
+    }
+  })();
+</script>
+</body>
+</html>
