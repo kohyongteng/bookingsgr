@@ -283,6 +283,14 @@ function openDb() {
     }
   }
 
+  // When a Booking.com reservation was last actually scraped (added 2026-09-11).
+  // updated_at can't answer "is this row newer than that email?" because
+  // manual dashboard edits and room auto-assign bump it too. See
+  // upsertPendingQueue for why this matters.
+  if (!existingCols.has('last_synced_at')) {
+    db.exec('ALTER TABLE bookings ADD COLUMN last_synced_at TEXT');
+  }
+
   return db;
 }
 
@@ -297,8 +305,16 @@ function typeToBookingStatus(type) {
 // Called by the detector every ~5 minutes for each candidate found in Gmail.
 // Only adds/updates the pending_queue if this represents genuinely new information -
 // i.e. not already correctly reflected in the main bookings table.
+// SQLite CURRENT_TIMESTAMP is UTC but written without a zone ("2026-09-11 11:30:46").
+function sqliteUtcToDate(s) {
+  if (!s) return null;
+  const d = new Date(String(s).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? '' : 'Z'));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function upsertPendingQueue(db, candidate) {
-  const mainRow = db.prepare('SELECT status FROM bookings WHERE booking_number = ?').get(candidate.bookingNumber);
+  const cols = 'status, last_synced_at, financials_source, financials_updated_at';
+  const mainRow = db.prepare(`SELECT ${cols} FROM bookings WHERE booking_number = ?`).get(candidate.bookingNumber);
   // Multi-room bookings are saved as "<bookingNumber>-1", "<bookingNumber>-2", etc.
   // (see saveMultiRoomBooking) - there is never a row with the plain booking number
   // for those, so without this fallback this check always misses them and the
@@ -306,12 +322,43 @@ function upsertPendingQueue(db, candidate) {
   // All rooms from one scrape share the same status, so checking one is sufficient.
   const multiRoomRow = mainRow
     ? null
-    : db.prepare('SELECT status FROM bookings WHERE booking_number LIKE ? LIMIT 1').get(`${candidate.bookingNumber}-%`);
+    : db.prepare(`SELECT ${cols} FROM bookings WHERE booking_number LIKE ? LIMIT 1`).get(`${candidate.bookingNumber}-%`);
   const effectiveRow = mainRow || multiRoomRow;
   const expectedStatus = typeToBookingStatus(candidate.type);
+  const clearStaleQueueEntry = () =>
+    db.prepare('DELETE FROM pending_queue WHERE booking_number = ?').run(candidate.bookingNumber);
 
   if (effectiveRow && effectiveRow.status === expectedStatus) {
     // Already correctly synced with this exact status - nothing to queue.
+    clearStaleQueueEntry();
+    return 'already-synced';
+  }
+
+  // Also synced if the reservation was scraped AFTER this email arrived: that
+  // scrape already captured whatever the email announced, so only the status
+  // label can be stale. Comparing labels alone re-queued such bookings forever
+  // (6237989196 was scraped as NEW at 19:30, hours after its MODIFIED email),
+  // and a booking staff marked "checked_in" never matches any email type, so
+  // its re-scrape would even reset it to new/modified.
+  //
+  // last_synced_at is set on every scrape. Rows scraped before that column
+  // existed fall back to financials_updated_at, which the scraper also stamps.
+  const lastSynced = effectiveRow
+    ? sqliteUtcToDate(effectiveRow.last_synced_at) ||
+      (effectiveRow.financials_source === 'booking-scrape' ? sqliteUtcToDate(effectiveRow.financials_updated_at) : null)
+    : null;
+  const emailAt = candidate.receivedDate ? new Date(candidate.receivedDate) : null;
+
+  if (lastSynced && emailAt && !Number.isNaN(emailAt.getTime()) && lastSynced >= emailAt) {
+    // Correct just the label a re-scrape would have written - but only between
+    // new/modified, so a manually set checked_in (or cancelled) is never touched.
+    if (['new', 'modified'].includes(expectedStatus)) {
+      db.prepare(`
+        UPDATE bookings SET status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE (booking_number = ? OR booking_number LIKE ?) AND status IN ('new', 'modified') AND status != ?
+      `).run(expectedStatus, candidate.bookingNumber, `${candidate.bookingNumber}-%`, expectedStatus);
+    }
+    clearStaleQueueEntry();
     return 'already-synced';
   }
 
@@ -412,16 +459,17 @@ function saveBooking(db, bookingNumber, status, scraped) {
   db.prepare(`
     INSERT INTO bookings (
       booking_number, platform, room_category, guest_name,
-      check_in, check_out, status, updated_at
+      check_in, check_out, status, updated_at, last_synced_at
     )
-    VALUES (?, 'booking.com', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    VALUES (?, 'booking.com', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     ON CONFLICT(booking_number) DO UPDATE SET
       room_category = excluded.room_category,
       guest_name = excluded.guest_name,
       check_in = excluded.check_in,
       check_out = excluded.check_out,
       status = excluded.status,
-      updated_at = CURRENT_TIMESTAMP
+      updated_at = CURRENT_TIMESTAMP,
+      last_synced_at = CURRENT_TIMESTAMP
     WHERE bookings.status != 'cancelled'
   `).run(bookingNumber, scraped.roomType, scraped.guestName, scraped.checkIn, scraped.checkOut, status);
 }
