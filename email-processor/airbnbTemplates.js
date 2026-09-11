@@ -71,7 +71,12 @@ Please take a photo of your QR ticket as a backup — in case the physical ticke
   },
   {
     id: 'late_checkout',
-    matchWhen: 'Guest asks about check-out time, late check-out, or extending their stay before leaving.',
+    // Kept narrow on purpose (same wording as whatsapp-bot/src/templates.js):
+    // "how to check out tomorrow" used to match here and get the fee policy.
+    matchWhen:
+      'Guest asks WHAT TIME check-out is, or wants to leave LATER than the standard check-out time ' +
+      '(late check-out). NOT for asking how to check out or what to do when leaving - that is ' +
+      'checkout_procedure, even if they mention the day they are leaving.',
     reply:
 `Check-Out Policy:
 
@@ -101,7 +106,10 @@ Thank you for your understanding, and we look forward to welcoming you!`,
   },
   {
     id: 'checkout_procedure',
-    matchWhen: 'Guest asks what to do when checking out, whether they need to hand over keys, etc.',
+    matchWhen:
+      'Guest asks HOW to check out or what to do when leaving - e.g. "how to check out", ' +
+      '"how to check out tomorrow", "do I need to return anything", "need to inform anyone when we leave" - ' +
+      'including when they mention the day or date they are leaving.',
     reply:
 `If nothing is damaged and everything is kept clean, there are no formalities needed. You may simply close the door behind you when you leave.
 

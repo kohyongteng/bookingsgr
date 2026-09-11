@@ -208,6 +208,12 @@ export function createHandler(sock) {
     }
 
     const templateIds = await matchIntents({ text: combinedText });
+    // Without this there was no way to answer "why did the bot send X?" from
+    // the logs - the classification was never recorded anywhere.
+    console.log(
+      `[handler] classified ${jid} as ${JSON.stringify(templateIds)}` +
+      `${firstContact ? ' (first contact)' : ''}: ${JSON.stringify(combinedText.slice(0, 120))}`
+    );
     const hasUnmatched = templateIds.includes(UNMATCHED);
     const wantsExtendStay = templateIds.includes('extend_stay');
     // Two filters here:
