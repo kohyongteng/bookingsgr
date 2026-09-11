@@ -132,6 +132,18 @@ async function runBookingComCycle() {
     let touched = 0;
     let cancelled = 0;
 
+    // A booking often has SEVERAL emails inside the rolling window (e.g. NEW
+    // then MODIFIED). Acting on every one of them made the queue oscillate
+    // forever: once a sync set the booking to 'modified', the older NEW email
+    // no longer matched and re-queued it; the sync then set it back to 'new',
+    // which made the MODIFIED emails mismatch, and so on - so an
+    // already-synced booking was re-scraped on every single cycle.
+    //
+    // Only the winning email per booking is acted on. Messages arrive
+    // oldest-first, so the last one seen for a booking is the newest - except
+    // a cancellation, which always wins regardless of order (the same
+    // "cancelled always wins" rule saveBooking/saveCancelled enforce).
+    const winners = new Map();
     for (const m of messages) {
       const meta = await gmail.users.messages.get({
         userId: 'me',
@@ -141,6 +153,16 @@ async function runBookingComCycle() {
       });
       const candidate = lib.parseSubjectOnly(meta.data, new Date('2000-01-01'));
       if (!candidate) continue;
+
+      const existing = winners.get(candidate.bookingNumber);
+      if (existing && existing.candidate.type === 'CANCELLED' && candidate.type !== 'CANCELLED') continue;
+      winners.set(candidate.bookingNumber, { candidate, messageId: m.id });
+    }
+
+    const skippedSuperseded = messages.length - winners.size;
+
+    for (const { candidate, messageId: mId } of winners.values()) {
+      const m = { id: mId };
 
       if (candidate.type === 'CANCELLED') {
         // No scraping/login needed for cancellations - just the guest name from the
@@ -174,7 +196,8 @@ async function runBookingComCycle() {
     saveLastCheckDate(LAST_CHECK_PATH, now);
 
     console.log(
-      `[${now.toISOString()}] Booking.com cycle done. Checked ${messages.length} emails. ` +
+      `[${now.toISOString()}] Booking.com cycle done. Checked ${messages.length} emails ` +
+      `(${winners.size} bookings, ${skippedSuperseded} superseded email(s) skipped). ` +
       `New: ${inserted}, Status-changed: ${updated}, Already synced: ${alreadySynced}, ` +
       `Unchanged: ${touched}, Auto-cancelled: ${cancelled}`
     );
