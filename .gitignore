@@ -54,6 +54,11 @@ startup-boot.log
 # --- Backfill run logs (contain guest names + reservation figures) ---
 backfill-booking.log
 
+# --- pm2 watchdog runtime files ---
+pm2-watchdog.log
+pm2-watchdog.log.old
+pm2-watchdog.lock
+
 # --- Stale manual export ---
 whatsapp-bot/whatsapp-bot.tar.gz
 
