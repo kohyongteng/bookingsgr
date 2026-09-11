@@ -1,6 +1,9 @@
-// pm2 watchdog - run every 15 minutes by the PM2Watchdog scheduled task
-// (via C:\Users\scada\pm2-watchdog.ps1). Checks the pm2 daemon and every app
-// saved in dump.pm2, and repairs only what is actually broken:
+// pm2 watchdog - run every 5 minutes by the SwissGarden-PM2Watchdog scheduled
+// task (via C:\Users\scada\pm2-watchdog.ps1). Task Scheduler runs it, not pm2,
+// so it still fires if the pm2 daemon itself has died. That task was created
+// from a non-admin session on purpose: a task registered from an admin shell
+// can only be edited by an admin. Checks the pm2 daemon and every app saved
+// in dump.pm2, and repairs only what is actually broken:
 //
 //   daemon unreachable / app missing  -> pm2 resurrect
 //   app "errored" (crash loop, pm2 gave up auto-restarting) -> pm2 restart <app>
