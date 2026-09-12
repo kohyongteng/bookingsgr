@@ -36,6 +36,9 @@
     text-decoration: none;
     display: inline-block;
   }
+  /* Wide screens: controls sit to the right of the title. Kept here rather
+     than inline so the phone rule below can actually override it. */
+  .header-controls { justify-content: flex-end; }
 
   /* Phones: the header now carries up to five controls (AI Assistant,
      Maintenance, Revenue, WhatsApp, Logout), which ran off the right edge of an
@@ -55,7 +58,10 @@
       margin-bottom: 6px;
       font-size: 16px;
     }
-    header > div {
+    /* Targets the control group by class, not by being "the div in the header".
+       Once the title takes its own row, the buttons must start at the LEFT edge -
+       right-aligning them left an empty gap down the left of every header row. */
+    .header-controls {
       width: 100%;
       flex-wrap: wrap;
       justify-content: flex-start;
@@ -415,7 +421,10 @@
 <div id="app" style="display:none;">
   <header>
     <h1>Swiss Garden Bookings</h1>
-    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+    <!-- Alignment is set in CSS, not inline: an inline justify-content beats
+         any stylesheet rule, which silently defeated the phone media query and
+         left the buttons pushed right with an empty gap down the left side. -->
+    <div class="header-controls" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
       <!-- Revenue is admin-only; the link is revealed after /api/me confirms
            the role, so staff never see a tab they'd only get a 403 from. -->
       <a href="/assistant.html">AI Assistant</a>
