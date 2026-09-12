@@ -19,6 +19,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
     position: sticky;
     top: 0;
     z-index: 10;
@@ -33,6 +35,39 @@
     font-size: 13px;
     text-decoration: none;
     display: inline-block;
+  }
+
+  /* Phones: the header now carries up to five controls (AI Assistant,
+     Maintenance, Revenue, WhatsApp, Logout), which ran off the right edge of an
+     iPhone and pushed the WhatsApp button out of view. Let them wrap onto a
+     second row - two rows is fine.
+     Both bars also stop being sticky at this width: #syncBar is pinned with
+     `top: 49px`, a number that only holds for a single-row header, so a wrapped
+     (taller) header left it overlapping the content while scrolling. Dropping
+     sticky on narrow screens avoids depending on that measurement at all. */
+  @media (max-width: 640px) {
+    header {
+      position: static;
+      padding: 10px 12px;
+    }
+    header h1 {
+      width: 100%;
+      margin-bottom: 6px;
+      font-size: 16px;
+    }
+    header > div {
+      width: 100%;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+    }
+    header button, header a {
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+    #syncBar {
+      position: static;
+      top: auto;
+    }
   }
   #whatsappToggleBtn { font-weight: 600; }
 
@@ -359,7 +394,7 @@
 <div id="app" style="display:none;">
   <header>
     <h1>Swiss Garden Bookings</h1>
-    <div style="display:flex; align-items:center; gap:8px;">
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
       <!-- Revenue is admin-only; the link is revealed after /api/me confirms
            the role, so staff never see a tab they'd only get a 403 from. -->
       <a href="/assistant.html">AI Assistant</a>
