@@ -68,6 +68,16 @@
       position: static;
       top: auto;
     }
+    /* Seven columns on a ~375px screen leave roughly 48px each. The occupancy
+       breakdown wraps here rather than being cut off by the ellipsis, so no
+       figure is lost on the device this is mostly read on. */
+    .cal-grid { gap: 3px; }
+    .cal-cell { padding: 3px; min-height: 62px; }
+    .cal-cell .breakdown-row {
+      font-size: 7px;
+      white-space: normal;
+      overflow-wrap: break-word;
+    }
   }
   #whatsappToggleBtn { font-weight: 600; }
 
@@ -167,7 +177,11 @@
 
   .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .cal-header button { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 8px 12px; font-size: 15px; }
-  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  /* minmax(0, 1fr), not 1fr: a plain 1fr track cannot shrink below its
+     content's own minimum width, and .breakdown-row is white-space: nowrap.
+     That forced all seven columns to fit "B10 A12 O0" unwrapped, overflowed
+     the viewport on an iPhone, and clipped the Sunday column off the screen. */
+  .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
   .cal-daylabel { text-align: center; font-size: 11px; color: #889; padding: 4px 0; }
   .cal-cell {
     min-height: 68px;
@@ -179,11 +193,18 @@
     justify-content: flex-start;
     font-size: 11px;
     border: 1px solid #eee;
+    /* Lets the cell be narrower than its widest line instead of pushing the
+       grid wider than the screen (see the note on .cal-grid). */
+    min-width: 0;
+    overflow: hidden;
   }
   .cal-cell.empty { background: transparent; border: none; }
   .cal-cell .daynum { font-weight: 600; font-size: 12px; }
   .cal-cell .occ { font-size: 10px; color: #567; }
-  .cal-cell .breakdown-row { font-size: 8px; color: #99a; margin-top: 1px; white-space: nowrap; }
+  .cal-cell .breakdown-row {
+    font-size: 8px; color: #99a; margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .cal-cell.full { background: #fdecea; border-color: #e6a19a; }
   .cal-cell.full .occ { color: #c0392b; font-weight: 700; }
   .cal-cell.today { border: 2px solid #003580; }
