@@ -105,9 +105,10 @@ app.get('/api/me', (req, res) => {
 // and "08" in the unit list.
 // Units that can hold maintenance records but are NOT rentable, so they are
 // deliberately absent from the room registry (which drives availability and
-// room assignment). N1102 came in with the SWISS_GARDEN maintenance workbook
-// and has never had a booking; without listing it here the API would reject
-// its records as an unknown room.
+// room assignment). N1102 is staff accommodation - it still needs its repairs
+// logged, but it must never be offered to guests, so do NOT "fix" its absence
+// from the registry by adding it there. Without listing it here the
+// maintenance API would reject its records as an unknown room.
 const MAINTENANCE_ONLY_ROOMS = ['N1102'];
 
 function allPhysicalRooms() {
