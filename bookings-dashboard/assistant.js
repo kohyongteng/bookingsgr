@@ -517,7 +517,19 @@ function startJob(ctx, args) {
   const existingId = jobByUser.get(args.username);
   if (existingId) {
     const existing = jobs.get(existingId);
-    if (existing && existing.status === 'running') return { jobId: existingId, reused: true };
+    if (existing && existing.status === 'running') {
+      // This question is NOT answered: the page will collect the previous
+      // job's answer instead. Log it regardless - otherwise "log every
+      // question" silently loses precisely the questions that went
+      // unanswered, which are the ones worth reviewing.
+      logInteraction(ctx, {
+        username: args.username,
+        message: args.message,
+        error: 'Not processed - another question from this user was still running.',
+        ms: 0,
+      });
+      return { jobId: existingId, reused: true };
+    }
     jobByUser.delete(args.username);
   }
 
