@@ -265,7 +265,11 @@ https://youtube.com/shorts/J4HFS8vtRKk?feature=share`,
     id: 'water_heater',
     matchWhen: 'Guest asks about hot water, shower, or says the water heater isn\'t working.',
     reply:
+// The lead-in line matters: guests often insist the problem is the water
+// heater when it is actually the shower-head diverter, and a bare link got
+// argued with instead of watched.
 `Kindly note that the water heater switch is located on the wall in the bedroom. Please turn it on and allow 10–15 minutes for the water to heat up. Thank you.
+Refer the video below how to switch between shower head
 https://www.youtube.com/shorts/agNmvu4CfJs?feature=share`,
   },
   {
