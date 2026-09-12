@@ -292,7 +292,9 @@ export function createHandler(sock) {
     // and record the moment so the pre-send guard also suppresses a reply that
     // hasn't been scheduled yet (e.g. staff replied during the debounce wait).
     if (msg.key.fromMe) {
-      if (!isGroupJid(jid) && !ownSentIds.has(msg.key.id)) {
+      const sentByBotItself = ownSentIds.has(msg.key.id);
+
+      if (!isGroupJid(jid) && !sentByBotItself) {
         markHumanReply(jid);
         let cancelled = false;
         for (const k of aliasKeysFor(jid)) {
@@ -303,7 +305,15 @@ export function createHandler(sock) {
             (cancelled ? ' — cancelled queued bot reply' : ' — nothing queued; bot will stay silent for this message')
         );
       }
-      return; // never process our own/staff outgoing messages as guest input
+
+      // Staff typing in the staff group from THIS phone (the number the bot is
+      // linked to) arrive as fromMe, so returning here swallowed their
+      // "Proceed" and the Airbnb approval never fired - it only worked from a
+      // different staff phone. Let those fall through to the staff-group check
+      // below; messages the bot itself sent are still ignored, so it can never
+      // approve its own proposal.
+      const staffTypedInStaffGroup = jid === config.staffGroupJid && !sentByBotItself;
+      if (!staffTypedInStaffGroup) return; // never process our own/staff outgoing messages as guest input
     }
 
     // Groups: only the housekeeping/staff groups exist as groups in this workflow,
