@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Assistant - Swiss Garden</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; display: flex; flex-direction: column; height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f4f5f7; color: #1b2747;
+  }
+  header {
+    background: #003580; color: white; padding: 14px 16px;
+    display: flex; justify-content: space-between; align-items: center; flex: 0 0 auto;
+  }
+  header h1 { font-size: 17px; margin: 0; }
+  header a {
+    background: rgba(255,255,255,0.15); color: white; padding: 6px 12px;
+    border-radius: 6px; font-size: 13px; text-decoration: none;
+  }
+
+  main { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
+  .wrap { max-width: 800px; margin: 0 auto; }
+
+  .hint {
+    background: white; border-radius: 10px; padding: 12px 14px; font-size: 13px;
+    color: #556; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 12px;
+  }
+  .hint b { color: #1b2747; }
+  .hint ul { margin: 8px 0 0; padding-left: 18px; }
+  .hint li { margin-bottom: 4px; }
+  .hint code {
+    background: #eef2fb; padding: 1px 5px; border-radius: 4px; font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .msg { margin-bottom: 10px; display: flex; }
+  .msg.me { justify-content: flex-end; }
+  .bubble {
+    max-width: 86%; padding: 10px 12px; border-radius: 12px; font-size: 14px;
+    white-space: pre-wrap; word-break: break-word; line-height: 1.45;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  }
+  .msg.me .bubble { background: #003580; color: white; border-bottom-right-radius: 4px; }
+  .msg.ai .bubble { background: white; border-bottom-left-radius: 4px; }
+  .msg.sys .bubble { background: #e8f5ec; color: #1e7e34; font-size: 13px; font-weight: 600; }
+  .msg.err .bubble { background: #fdecea; color: #a3271b; }
+
+  #pendingBar {
+    display: none; background: #fff6e0; border: 1px solid #f0d9a0; color: #7a5c00;
+    border-radius: 10px; padding: 12px; margin-bottom: 10px; font-size: 13px;
+  }
+  #pendingBar .p-sum { white-space: pre-wrap; font-weight: 600; margin-bottom: 8px; }
+  #pendingBar .p-act { display: flex; gap: 8px; }
+  #pendingBar button { border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  #proceedBtn { background: #1e7e34; color: white; }
+  #cancelBtn { background: #eef2fb; color: #003580; }
+
+  footer { flex: 0 0 auto; background: white; border-top: 1px solid #e1e7f0; padding: 10px 14px; }
+  .composer { max-width: 800px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
+  .composer textarea {
+    flex: 1 1 auto; padding: 10px; border: 1px solid #ccd3e0; border-radius: 8px;
+    font-size: 15px; font-family: inherit; resize: none; max-height: 140px;
+  }
+  .composer button {
+    background: #003580; color: white; border: none; padding: 11px 18px;
+    border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  .composer button:disabled { background: #99a; }
+  .typing { font-size: 13px; color: #889; font-style: italic; margin-bottom: 10px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI Assistant</h1>
+  <a href="/">&larr; Bookings</a>
+</header>
+
+<main>
+  <div class="wrap">
+    <div id="gate" class="hint" style="display:none;"></div>
+
+    <div id="app" style="display:none;">
+      <div class="hint">
+        Tell me what to record, in your own words. I will always show you exactly what will change and wait for
+        <b>Proceed</b> before saving anything.
+        <ul>
+          <li><code>record S2005 today bedroom AC leaking</code></li>
+          <li><code>tomorrow N3001 check out 2pm</code></li>
+          <li><code>what repairs has N1901 had this year?</code></li>
+        </ul>
+        I can add maintenance records, mark them done, and add notes to bookings. I cannot change booking dates
+        or room assignments - those stay manual so a mistake can't double-book a unit.
+      </div>
+
+      <div id="pendingBar">
+        <div class="p-sum" id="pendingSummary"></div>
+        <div class="p-act">
+          <button id="proceedBtn">Proceed</button>
+          <button id="cancelBtn">Cancel</button>
+        </div>
+      </div>
+
+      <div id="messages"></div>
+      <div class="typing" id="typing">Thinking...</div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="composer">
+    <textarea id="input" rows="1" placeholder="e.g. record S2005 today bedroom AC leaking" autocomplete="off"></textarea>
+    <button id="sendBtn">Send</button>
+  </div>
+</footer>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const history = []; // {role, content} - last few turns sent back for context
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function bubble(kind, text) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + kind;
+    div.innerHTML = `<div class="bubble">${esc(text)}</div>`;
+    $('messages').appendChild(div);
+    div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }
+  async function api(path, opts) {
+    const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).error || msg; } catch (e) {}
+      throw new Error(msg);
+    }
+    return res.json();
+  }
+
+  function showPending(summary) {
+    if (summary) {
+      $('pendingSummary').textContent = summary;
+      $('pendingBar').style.display = '';
+    } else {
+      $('pendingBar').style.display = 'none';
+    }
+  }
+
+  let busy = false;
+  async function send(text) {
+    if (busy) return;
+    const message = text != null ? text : $('input').value.trim();
+    if (!message) return;
+    busy = true;
+    $('sendBtn').disabled = true;
+    $('input').value = '';
+    $('input').style.height = 'auto';
+    bubble('me', message);
+    history.push({ role: 'user', content: message });
+    $('typing').style.display = '';
+
+    try {
+      const data = await api('/api/assistant/message', {
+        method: 'POST',
+        body: JSON.stringify({ message, history: history.slice(0, -1) }),
+      });
+      bubble(data.executed ? 'sys' : 'ai', data.reply);
+      history.push({ role: 'assistant', content: data.reply });
+      showPending(data.pendingSummary);
+    } catch (err) {
+      bubble('err', 'Failed: ' + err.message);
+    } finally {
+      $('typing').style.display = 'none';
+      busy = false;
+      $('sendBtn').disabled = false;
+      $('input').focus();
+    }
+  }
+
+  // The buttons send the same words the server expects, so tapping and typing
+  // "Proceed" follow exactly one code path.
+  $('proceedBtn').addEventListener('click', () => send('Proceed'));
+  $('cancelBtn').addEventListener('click', () => send('Cancel'));
+  $('sendBtn').addEventListener('click', () => send());
+  $('input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  $('input').addEventListener('input', () => {
+    $('input').style.height = 'auto';
+    $('input').style.height = Math.min($('input').scrollHeight, 140) + 'px';
+  });
+
+  (async function init() {
+    try {
+      await api('/api/me');
+    } catch (err) {
+      $('gate').style.display = '';
+      $('gate').innerHTML = 'Please <a href="/">log in</a> to use the assistant.';
+      return;
+    }
+    $('app').style.display = '';
+    try {
+      const { pendingSummary } = await api('/api/assistant/pending');
+      if (pendingSummary) {
+        bubble('ai', 'You have a change waiting to be confirmed from earlier.');
+        showPending(pendingSummary);
+      }
+    } catch (e) { /* nothing pending is not an error */ }
+    $('input').focus();
+  })();
+</script>
+</body>
+</html>

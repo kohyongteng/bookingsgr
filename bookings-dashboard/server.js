@@ -1,3 +1,9 @@
+// Loads ANTHROPIC_API_KEY / ASSISTANT_MODEL for the AI Assistant. Must run
+// before any module reads process.env. The file is gitignored (**/.env), and
+// an explicit path is used so the key is found regardless of the working
+// directory pm2 starts this process in.
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
@@ -306,6 +312,35 @@ app.delete('/api/maintenance/:id', requireAdmin, (req, res) => {
   } finally {
     db.close();
   }
+});
+
+// --- AI Assistant ----------------------------------------------------------
+// Claude proposes; this server executes only after the user replies "Proceed".
+// See assistant.js for why the model is never given write access.
+const assistant = require('./assistant');
+
+app.post('/api/assistant/message', requireAuth, async (req, res) => {
+  const { message, history } = req.body || {};
+  try {
+    const result = await assistant.handleMessage(
+      { dbPath: DB_PATH, rooms: allPhysicalRooms() },
+      {
+        sessionId: req.sessionID,
+        username: req.session.user.username,
+        message,
+        history: Array.isArray(history) ? history : [],
+      }
+    );
+    res.json(result);
+  } catch (err) {
+    console.error('[assistant] failed:', err);
+    res.status(500).json({ error: err.userFacing ? err.message : 'The assistant is unavailable right now.' });
+  }
+});
+
+app.get('/api/assistant/pending', requireAuth, (req, res) => {
+  const p = assistant.getPending(req.sessionID);
+  res.json({ pendingSummary: p ? p.summary : null });
 });
 
 // --- Revenue reporting (admin only) ----------------------------------------
