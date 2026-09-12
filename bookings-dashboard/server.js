@@ -103,8 +103,15 @@ app.get('/api/me', (req, res) => {
 // "airbnbShared" maps room -> Airbnb listing number, so the KEYS are real
 // rooms and the values are listing ids - taking values here would put "06"
 // and "08" in the unit list.
+// Units that can hold maintenance records but are NOT rentable, so they are
+// deliberately absent from the room registry (which drives availability and
+// room assignment). N1102 came in with the SWISS_GARDEN maintenance workbook
+// and has never had a booking; without listing it here the API would reject
+// its records as an unknown room.
+const MAINTENANCE_ONLY_ROOMS = ['N1102'];
+
 function allPhysicalRooms() {
-  const rooms = new Set();
+  const rooms = new Set(MAINTENANCE_ONLY_ROOMS);
   for (const value of Object.values(ROOM_REGISTRY)) {
     if (Array.isArray(value)) {
       value.forEach((r) => rooms.add(r));

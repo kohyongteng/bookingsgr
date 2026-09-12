@@ -253,6 +253,23 @@ function openDb() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_maintenance_room ON maintenance_records(room_number)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_maintenance_date ON maintenance_records(event_date)');
 
+  // Per-room appliance/room facts (added 2026-09-12), imported from the
+  // SWISS_GARDEN workbook's "room overview" lines ("AC living - Daikin").
+  // Separate from maintenance_records because these are undated standing facts,
+  // not events. UNIQUE(room_number, item) makes re-importing idempotent.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS room_inventory (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_number TEXT NOT NULL,
+      item TEXT NOT NULL,
+      detail TEXT,
+      source TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(room_number, item)
+    )
+  `);
+
   // --- Financial columns on bookings (added 2026-09-08) ---------------------
   // Recorded for reporting/analysis only - nothing operational reads these, so
   // a booking with no financials is still perfectly valid (and most historical
