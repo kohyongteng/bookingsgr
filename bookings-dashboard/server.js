@@ -319,10 +319,15 @@ app.delete('/api/maintenance/:id', requireAdmin, (req, res) => {
 // See assistant.js for why the model is never given write access.
 const assistant = require('./assistant');
 
-app.post('/api/assistant/message', requireAuth, async (req, res) => {
+// Returns a job id immediately rather than holding the connection for the
+// whole tool loop. The old version sent nothing for ~10 seconds and Safari on
+// the phone dropped the idle request ("Load failed") even though the work had
+// completed server-side. Every request here now finishes in well under a
+// second; the page polls for the result.
+app.post('/api/assistant/message', requireAuth, (req, res) => {
   const { message, history } = req.body || {};
   try {
-    const result = await assistant.handleMessage(
+    const { jobId, reused } = assistant.startJob(
       { dbPath: DB_PATH, rooms: allPhysicalRooms() },
       {
         sessionId: req.sessionID,
@@ -331,11 +336,20 @@ app.post('/api/assistant/message', requireAuth, async (req, res) => {
         history: Array.isArray(history) ? history : [],
       }
     );
-    res.json(result);
+    // 202: accepted for processing, answer not ready yet. `reused` means this
+    // user already had a job running and it was returned instead of starting
+    // a second one.
+    res.status(202).json({ jobId, reused });
   } catch (err) {
-    console.error('[assistant] failed:', err);
+    console.error('[assistant] could not start job:', err);
     res.status(500).json({ error: err.userFacing ? err.message : 'The assistant is unavailable right now.' });
   }
+});
+
+app.get('/api/assistant/job/:id', requireAuth, (req, res) => {
+  const job = assistant.getJob(req.sessionID, req.params.id);
+  if (!job) return res.status(404).json({ error: 'That request is no longer available - please send it again.' });
+  res.json(job);
 });
 
 app.get('/api/assistant/pending', requireAuth, (req, res) => {

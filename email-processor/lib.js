@@ -253,6 +253,26 @@ function openDb() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_maintenance_room ON maintenance_records(room_number)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_maintenance_date ON maintenance_records(event_date)');
 
+  // Every AI Assistant exchange (added 2026-09-13): what was asked, what was
+  // answered, and whether it resulted in a database change. Kept in the
+  // database rather than only the pm2 log so it survives restarts and log
+  // rotation, and can be reviewed to judge how well the assistant is doing.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS assistant_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT,
+      message TEXT,
+      reply TEXT,
+      pending_summary TEXT,
+      executed TEXT,
+      error TEXT,
+      duration_ms INTEGER,
+      model TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_assistant_log_created ON assistant_log(created_at)');
+
   // Per-room appliance/room facts (added 2026-09-12), imported from the
   // SWISS_GARDEN workbook's "room overview" lines ("AC living - Daikin").
   // Separate from maintenance_records because these are undated standing facts,

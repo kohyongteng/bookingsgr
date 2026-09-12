@@ -331,7 +331,7 @@ Rules:
  * "Proceed" is handled entirely here - no model call - so a confirmation can
  * never be re-interpreted into a different action.
  */
-async function handleMessage(ctx, { sessionId, username, message, history = [] }) {
+async function handleMessage(ctx, { sessionId, username, message, history = [], onProgress }) {
   const text = String(message || '').trim();
   if (!text) return { reply: 'Say what you would like me to do.', pendingSummary: null };
 
@@ -370,6 +370,11 @@ async function handleMessage(ctx, { sessionId, username, message, history = [] }
       model: MODEL,
       max_tokens: 16000,
       thinking: { type: 'adaptive' },
+      // Routing a short instruction to one tool does not need deep reasoning,
+      // and every second here is a second the phone waits. 'medium' rather
+      // than 'low': at low effort the model was the thing that previously
+      // described a change without calling the propose_* tool.
+      output_config: { effort: 'medium' },
       system: systemPrompt(ctx.rooms),
       tools,
       messages,
@@ -413,6 +418,8 @@ async function handleMessage(ctx, { sessionId, username, message, history = [] }
       `[assistant] ${username} iter${i + 1} tools: ` +
       toolUses.map((t) => `${t.name}(${JSON.stringify(t.input).slice(0, 160)})`).join(' ')
     );
+    // Reported so the page can show "3 queries" rather than a blank wait.
+    if (onProgress) onProgress({ queries: i + 1, tools: toolUses.map((t) => t.name) });
     const results = [];
     for (const tu of toolUses) {
       let content;
@@ -446,4 +453,133 @@ async function handleMessage(ctx, { sessionId, username, message, history = [] }
   };
 }
 
-module.exports = { handleMessage, getPending, clearPending, CONFIRM_LINE, MODEL };
+// ------------------------------------------------------------------- jobs
+// Why jobs instead of just answering on the POST: the old endpoint held the
+// connection open for the whole tool loop, sending nothing for ~10 seconds.
+// Safari on the phone dropped that idle request and showed "Load failed" even
+// though the server had finished the work successfully and logged no error.
+// Now every HTTP request returns in well under a second and the page polls,
+// so there is no long-lived idle connection to drop.
+const jobs = new Map();       // jobId -> job
+const jobByUser = new Map();  // username -> id of that user's RUNNING job
+const RUNNING_ABANDON_MS = 8 * 60 * 1000;   // a stuck job is given up on
+const FINISHED_RETAIN_MS = 10 * 60 * 1000;  // a finished answer waits to be collected
+
+function reapJobs() {
+  const now = Date.now();
+  for (const [id, j] of jobs) {
+    if (j.status === 'running' && now - j.createdAt > RUNNING_ABANDON_MS) {
+      j.status = 'error';
+      j.error = 'That took too long and was abandoned. Please send it again.';
+      j.finishedAt = now;
+      if (jobByUser.get(j.username) === id) jobByUser.delete(j.username);
+    } else if (j.status !== 'running' && now - (j.finishedAt || j.createdAt) > FINISHED_RETAIN_MS) {
+      jobs.delete(id);
+    }
+  }
+}
+
+// Every exchange is recorded, including the ones that changed nothing, so
+// "what did staff ask and what did it answer" is reviewable later. Logging
+// must never break a reply, hence the swallowed error.
+function logInteraction(ctx, { username, message, result, error, ms }) {
+  try {
+    const db = new Database(ctx.dbPath);
+    try {
+      db.prepare(`
+        INSERT INTO assistant_log
+          (username, message, reply, pending_summary, executed, error, duration_ms, model, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `).run(
+        username || null,
+        message || null,
+        result ? result.reply : null,
+        result ? result.pendingSummary || null : null,
+        result ? result.executed || null : null,
+        error || null,
+        ms,
+        MODEL
+      );
+    } finally {
+      db.close();
+    }
+  } catch (err) {
+    console.error('[assistant] could not write assistant_log:', err.message);
+  }
+}
+
+function startJob(ctx, args) {
+  reapJobs();
+
+  // One running job per user. Without this, a second tab - or an impatient
+  // re-send after a dropped poll - starts a duplicate run and doubles the
+  // spend on the same question.
+  const existingId = jobByUser.get(args.username);
+  if (existingId) {
+    const existing = jobs.get(existingId);
+    if (existing && existing.status === 'running') return { jobId: existingId, reused: true };
+    jobByUser.delete(args.username);
+  }
+
+  const id = require('crypto').randomUUID();
+  const started = Date.now();
+  const job = {
+    id, sessionId: args.sessionId, username: args.username,
+    status: 'running', createdAt: started, queries: 0, tools: [],
+  };
+  jobs.set(id, job);
+  jobByUser.set(args.username, id);
+
+  // Deliberately not awaited: the caller responds immediately with the id.
+  handleMessage(ctx, {
+    ...args,
+    onProgress: (p) => { job.queries = p.queries; job.tools = p.tools; },
+  })
+    .then((result) => {
+      job.status = 'done';
+      job.result = result;
+      job.finishedAt = Date.now();
+    })
+    .catch((err) => {
+      console.error('[assistant] job failed:', err);
+      job.status = 'error';
+      job.error = err.userFacing ? err.message : 'The assistant is unavailable right now.';
+      job.finishedAt = Date.now();
+    })
+    .finally(() => {
+      if (jobByUser.get(args.username) === id) jobByUser.delete(args.username);
+      const ms = Date.now() - started;
+      // Logged either way: a failed question is as worth reviewing as an answer.
+      logInteraction(ctx, {
+        username: args.username, message: args.message,
+        result: job.result, error: job.error, ms,
+      });
+      console.log(
+        `[assistant] ${args.username} ${job.status} in ${ms}ms after ${job.queries} query/queries` +
+        `${job.result && job.result.executed ? ' (EXECUTED)' : ''}`
+      );
+    });
+
+  return { jobId: id, reused: false };
+}
+
+/** Scoped to the session, so one user's job id cannot read another's result. */
+function getJob(sessionId, id) {
+  reapJobs();
+  const job = jobs.get(id);
+  if (!job || job.sessionId !== sessionId) return null;
+
+  const elapsedMs = (job.finishedAt || Date.now()) - job.createdAt;
+  if (job.status === 'running') {
+    return { status: 'running', elapsedMs, queries: job.queries, tools: job.tools };
+  }
+  if (job.status === 'error') return { status: 'error', error: job.error, elapsedMs };
+
+  // A finished answer is KEPT for FINISHED_RETAIN_MS rather than dropped on
+  // first collection: a phone that was asleep when the answer landed must
+  // still be able to pick it up. Re-reading only re-displays the reply - the
+  // database change happened once, and its pending entry is already cleared.
+  return { status: 'done', elapsedMs, queries: job.queries, ...job.result };
+}
+
+module.exports = { handleMessage, startJob, getJob, getPending, clearPending, CONFIRM_LINE, MODEL };

@@ -165,16 +165,57 @@
     $('typing').style.display = '';
 
     try {
-      const data = await api('/api/assistant/message', {
+      // Submit, then poll. The server used to answer on this one request,
+      // which meant ~10 seconds of silence - Safari dropped it and showed
+      // "Load failed" even though the work had finished. Each call below
+      // returns immediately, so there is no idle connection to lose.
+      const { jobId } = await api('/api/assistant/message', {
         method: 'POST',
         body: JSON.stringify({ message, history: history.slice(0, -1) }),
       });
+
+      const started = Date.now();
+      let data = null;
+      let pollErrors = 0;
+      // Polls for up to 9 minutes - just past the server's 8-minute abandon,
+      // so a job it gave up on is reported as an error rather than as a
+      // client-side timeout.
+      while (Date.now() - started < 9 * 60 * 1000) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const job = await api('/api/assistant/job/' + encodeURIComponent(jobId));
+          if (job.status === 'done') { data = job; break; }
+          if (job.status === 'error') throw new Error(job.error || 'The assistant failed.');
+          pollErrors = 0;
+          const secs = Math.round((job.elapsedMs ?? (Date.now() - started)) / 1000);
+          const q = job.queries || 0;
+          $('typing').textContent =
+            `Thinking... ${secs}s` + (q ? ` - ${q} ${q === 1 ? 'query' : 'queries'} so far` : '');
+        } catch (err) {
+          // A dropped poll is not a failure: the work continues on the server,
+          // which is the whole point of polling. This is what lets a
+          // backgrounded phone come back and still collect the answer.
+          if (++pollErrors >= 5) throw err;
+        }
+      }
+      if (!data) throw new Error('Timed out waiting for a reply.');
+
       bubble(data.executed ? 'sys' : 'ai', data.reply);
       history.push({ role: 'assistant', content: data.reply });
       showPending(data.pendingSummary);
     } catch (err) {
       bubble('err', 'Failed: ' + err.message);
+      // The request may well have gone through - say so rather than leaving it
+      // ambiguous, and show anything now waiting for confirmation.
+      try {
+        const { pendingSummary } = await api('/api/assistant/pending');
+        if (pendingSummary) {
+          bubble('ai', 'Your instruction did go through - this is waiting for confirmation:');
+          showPending(pendingSummary);
+        }
+      } catch (e) { /* ignore - already reporting a failure */ }
     } finally {
+      $('typing').textContent = 'Thinking...';
       $('typing').style.display = 'none';
       busy = false;
       $('sendBtn').disabled = false;
