@@ -29,6 +29,7 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 14px;
   }
   .panel h2 { font-size: 14px; margin: 0 0 10px; color: #445; }
+  .panel h2 .sub { font-weight: 400; color: #889; font-size: 12px; }
   label { display: block; font-size: 12px; color: #667; margin: 8px 0 4px; }
   input, select, textarea {
     width: 100%; padding: 9px; border: 1px solid #ccd3e0;
@@ -43,6 +44,34 @@
   }
   button.primary:disabled { background: #99a; }
 
+  /* --- unit grid --- */
+  .unit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+  .unit-card {
+    border: 1px solid #e1e7f0; border-radius: 8px; padding: 8px 9px; cursor: pointer;
+    background: #fbfcfe; text-align: left; font: inherit; color: inherit;
+  }
+  .unit-card:hover { border-color: #adc0dd; background: #f5f8fd; }
+  .unit-card.active { border-color: #003580; background: #eef2fb; box-shadow: inset 0 0 0 1px #003580; }
+  .unit-card .u-room { font-weight: 700; font-size: 14px; }
+  .unit-card .u-meta { font-size: 11px; color: #778; margin-top: 3px; }
+  .unit-card .u-open { color: #9a5b00; font-weight: 600; }
+  .unit-card .u-none { color: #aab; }
+  .unit-card .u-staff { font-size: 10px; color: #667; background: #eef2fb; border-radius: 8px; padding: 1px 5px; }
+  #allUnitsBtn {
+    background: #eef2fb; color: #003580; border: none; padding: 7px 12px;
+    border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; margin-bottom: 10px;
+  }
+
+  /* --- inventory --- */
+  #inventoryPanel { display: none; }
+  .inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
+  .inv-item {
+    border: 1px solid #eef1f6; border-radius: 6px; padding: 7px 9px; font-size: 13px; background: #fbfcfe;
+  }
+  .inv-item .i-label { color: #667; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; }
+  .inv-item .i-detail { font-weight: 600; }
+  .inv-item .i-detail.blank { font-weight: 400; color: #aab; font-style: italic; }
+
   .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
   .filters > div { flex: 1 1 130px; }
   .filters label { margin-top: 0; }
@@ -51,13 +80,10 @@
     border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
   }
 
-  .counts { font-size: 13px; color: #556; margin-bottom: 10px; }
+  .counts { font-size: 13px; color: #556; margin: 12px 0 10px; }
   .counts strong { color: #1b2747; }
 
-  .rec {
-    border: 1px solid #e6eaf2; border-radius: 8px; padding: 10px 12px;
-    margin-bottom: 8px; background: white;
-  }
+  .rec { border: 1px solid #e6eaf2; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; background: white; }
   .rec.done { opacity: .62; background: #fafbfc; }
   .rec-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .rec-room { font-weight: 700; font-size: 15px; }
@@ -66,10 +92,7 @@
   .rec-notes { font-size: 12px; color: #667; white-space: pre-wrap; word-break: break-word; }
   .rec-meta { font-size: 11px; color: #99a; margin-top: 6px; }
   .rec-actions { display: flex; gap: 6px; margin-top: 8px; }
-  .rec-actions button {
-    font-size: 12px; padding: 5px 10px; border-radius: 6px; border: none;
-    cursor: pointer; font-weight: 600;
-  }
+  .rec-actions button { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; }
   .btn-done { background: #1e7e34; color: white; }
   .btn-reopen { background: #eef2fb; color: #003580; }
   .btn-del { background: #c0392b; color: white; }
@@ -98,6 +121,46 @@
 
   <div id="app" style="display:none;">
     <div id="msg" class="notice" style="display:none;"></div>
+
+    <div class="panel">
+      <h2>Units <span class="sub">tap a unit to see its history</span></h2>
+      <button id="allUnitsBtn">Show all units</button>
+      <div class="unit-grid" id="unitGrid"></div>
+    </div>
+
+    <div class="panel" id="inventoryPanel">
+      <h2 id="inventoryTitle">Room overview</h2>
+      <div class="inv-grid" id="inventoryGrid"></div>
+    </div>
+
+    <div class="panel">
+      <h2 id="recordsTitle">Records</h2>
+      <div class="filters">
+        <div>
+          <label for="fRoom">Unit</label>
+          <select id="fRoom"><option value="">All units</option></select>
+        </div>
+        <div>
+          <label for="fFrom">From</label>
+          <input type="date" id="fFrom" />
+        </div>
+        <div>
+          <label for="fTo">To</label>
+          <input type="date" id="fTo" />
+        </div>
+        <div>
+          <label for="fStatus">Status</label>
+          <select id="fStatus">
+            <option value="">All</option>
+            <option value="open">Open</option>
+            <option value="done">Done</option>
+          </select>
+        </div>
+        <div style="flex:0 0 auto;"><button id="clearBtn">Clear</button></div>
+      </div>
+      <div class="counts" id="counts"></div>
+      <div id="list"></div>
+    </div>
 
     <div class="panel">
       <h2>Add record</h2>
@@ -131,41 +194,16 @@
       <textarea id="notes" rows="2" placeholder="e.g. cost, vendor, follow-up needed"></textarea>
       <button class="primary" id="addBtn">Add record</button>
     </div>
-
-    <div class="panel">
-      <h2>Records</h2>
-      <div class="filters">
-        <div>
-          <label for="fRoom">Unit</label>
-          <select id="fRoom"><option value="">All units</option></select>
-        </div>
-        <div>
-          <label for="fFrom">From</label>
-          <input type="date" id="fFrom" />
-        </div>
-        <div>
-          <label for="fTo">To</label>
-          <input type="date" id="fTo" />
-        </div>
-        <div>
-          <label for="fStatus">Status</label>
-          <select id="fStatus">
-            <option value="">All</option>
-            <option value="open">Open</option>
-            <option value="done">Done</option>
-          </select>
-        </div>
-        <div style="flex:0 0 auto;"><button id="clearBtn">Clear</button></div>
-      </div>
-      <div class="counts" id="counts" style="margin-top:12px;"></div>
-      <div id="list"></div>
-    </div>
   </div>
 </main>
 
 <script>
   const $ = (id) => document.getElementById(id);
   let currentUser = null;
+  // Units that exist for maintenance but are not rentable (kept in step with
+  // MAINTENANCE_ONLY_ROOMS in server.js) - labelled so the grid doesn't look
+  // like it has a stray room in it.
+  const STAFF_UNITS = new Set(['N1102']);
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
@@ -188,7 +226,6 @@
     }
     return res.json();
   }
-
   function todayISO() {
     const d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -200,12 +237,69 @@
     $('fRoom').innerHTML = '<option value="">All units</option>' + rooms.map((r) => `<option>${esc(r)}</option>`).join('');
   }
 
+  // --- unit grid ---------------------------------------------------------
+  async function loadSummary() {
+    const { rooms } = await api('/api/maintenance/summary');
+    const selected = $('fRoom').value;
+    $('unitGrid').innerHTML = rooms.map((r) => {
+      const meta = r.total
+        ? `${r.total} record${r.total === 1 ? '' : 's'}` + (r.open ? ` &middot; <span class="u-open">${r.open} open</span>` : '')
+        : '<span class="u-none">no records</span>';
+      const last = r.lastEvent ? `<div class="u-meta">last ${esc(r.lastEvent)}</div>` : '';
+      const staff = STAFF_UNITS.has(r.room) ? ' <span class="u-staff">staff</span>' : '';
+      return `<button class="unit-card${r.room === selected ? ' active' : ''}" data-room="${esc(r.room)}">
+          <div class="u-room">${esc(r.room)}${staff}</div>
+          <div class="u-meta">${meta}</div>
+          ${last}
+        </button>`;
+    }).join('');
+  }
+
+  $('unitGrid').addEventListener('click', (e) => {
+    const card = e.target.closest('.unit-card');
+    if (!card) return;
+    selectUnit(card.dataset.room);
+  });
+  $('allUnitsBtn').addEventListener('click', () => selectUnit(''));
+
+  async function selectUnit(room) {
+    $('fRoom').value = room;
+    if (room) $('room').value = room; // pre-select in the Add form too
+    await Promise.all([loadList(), loadInventory(room)]);
+    await loadSummary(); // repaint the active highlight
+    if (room) $('recordsTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // --- room overview ----------------------------------------------------
+  async function loadInventory(room) {
+    const panel = $('inventoryPanel');
+    if (!room) { panel.style.display = 'none'; return; }
+    try {
+      const { rows } = await api('/api/room-inventory?room=' + encodeURIComponent(room));
+      if (!rows.length) { panel.style.display = 'none'; return; }
+      $('inventoryTitle').innerHTML = `Room overview <span class="sub">${esc(room)}</span>`;
+      $('inventoryGrid').innerHTML = rows.map((r) => `
+        <div class="inv-item">
+          <div class="i-label">${esc(r.item)}</div>
+          <div class="i-detail${r.detail ? '' : ' blank'}">${r.detail ? esc(r.detail) : 'not recorded'}</div>
+        </div>`).join('');
+      panel.style.display = '';
+    } catch (err) {
+      panel.style.display = 'none';
+      flash('Could not load room overview: ' + err.message, true);
+    }
+  }
+
+  // --- records ----------------------------------------------------------
   async function loadList() {
     const qs = new URLSearchParams();
-    if ($('fRoom').value) qs.set('room', $('fRoom').value);
+    const room = $('fRoom').value;
+    if (room) qs.set('room', room);
     if ($('fFrom').value) qs.set('from', $('fFrom').value);
     if ($('fTo').value) qs.set('to', $('fTo').value);
     if ($('fStatus').value) qs.set('status', $('fStatus').value);
+
+    $('recordsTitle').textContent = room ? `Records — ${room}` : 'Records — all units';
 
     try {
       const data = await api('/api/maintenance?' + qs.toString());
@@ -268,6 +362,7 @@
         });
       }
       await loadList();
+      await loadSummary(); // counts on the tiles change too
     } catch (err) {
       flash('Failed: ' + err.message, true);
       btn.disabled = false;
@@ -291,12 +386,11 @@
           notes: $('notes').value.trim() || null,
         }),
       });
-      // Keep the unit and date - logging several events for the same unit on
-      // the same visit is the common case.
       $('desc').value = '';
       $('notes').value = '';
       flash('Record added.');
       await loadList();
+      await loadSummary();
     } catch (err) {
       flash('Could not save: ' + err.message, true);
     } finally {
@@ -305,11 +399,11 @@
     }
   });
 
-  ['fRoom', 'fFrom', 'fTo', 'fStatus'].forEach((id) =>
-    $(id).addEventListener('change', loadList));
+  ['fFrom', 'fTo', 'fStatus'].forEach((id) => $(id).addEventListener('change', loadList));
+  $('fRoom').addEventListener('change', () => selectUnit($('fRoom').value));
   $('clearBtn').addEventListener('click', () => {
-    $('fRoom').value = ''; $('fFrom').value = ''; $('fTo').value = ''; $('fStatus').value = '';
-    loadList();
+    $('fFrom').value = ''; $('fTo').value = ''; $('fStatus').value = '';
+    selectUnit('');
   });
 
   (async function init() {
@@ -325,7 +419,7 @@
     $('date').value = todayISO();
     try {
       await loadRooms();
-      await loadList();
+      await Promise.all([loadSummary(), loadList()]);
     } catch (err) {
       flash('Startup failed: ' + err.message, true);
     }

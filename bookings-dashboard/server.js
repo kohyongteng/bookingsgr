@@ -155,6 +155,66 @@ app.get('/api/maintenance', requireAuth, (req, res) => {
   }
 });
 
+// Per-unit tiles for the maintenance page. Every physical unit is returned,
+// including ones with no records at all (S2806, S3001 and the new S2103), so
+// the grid shows the whole building rather than only units with history.
+app.get('/api/maintenance/summary', requireAuth, (req, res) => {
+  const db = new Database(DB_PATH, { readonly: true });
+  try {
+    const byRoom = new Map(
+      allPhysicalRooms().map((r) => [r, { room: r, total: 0, open: 0, done: 0, lastEvent: null, items: 0 }])
+    );
+    const ensure = (room) => {
+      if (!byRoom.has(room)) {
+        // A record for a unit no longer in the registry still deserves to be
+        // visible rather than silently dropped from the grid.
+        byRoom.set(room, { room, total: 0, open: 0, done: 0, lastEvent: null, items: 0, unlisted: true });
+      }
+      return byRoom.get(room);
+    };
+
+    for (const r of db.prepare(`
+      SELECT room_number,
+             COUNT(*) AS total,
+             SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open,
+             MAX(event_date) AS lastEvent
+      FROM maintenance_records GROUP BY room_number
+    `).all()) {
+      const e = ensure(r.room_number);
+      e.total = r.total;
+      e.open = r.open;
+      e.done = r.total - r.open;
+      e.lastEvent = r.lastEvent;
+    }
+    for (const r of db.prepare('SELECT room_number, COUNT(*) AS items FROM room_inventory GROUP BY room_number').all()) {
+      ensure(r.room_number).items = r.items;
+    }
+
+    res.json({ rooms: [...byRoom.values()].sort((a, b) => a.room.localeCompare(b.room)) });
+  } catch (err) {
+    console.error('[maintenance] summary failed:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.close();
+  }
+});
+
+// Room overview / appliance facts imported from the SWISS_GARDEN workbook.
+app.get('/api/room-inventory', requireAuth, (req, res) => {
+  const db = new Database(DB_PATH, { readonly: true });
+  try {
+    const rows = req.query.room
+      ? db.prepare('SELECT * FROM room_inventory WHERE room_number = ? ORDER BY item').all(req.query.room)
+      : db.prepare('SELECT * FROM room_inventory ORDER BY room_number, item').all();
+    res.json({ rows });
+  } catch (err) {
+    console.error('[room-inventory] query failed:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.close();
+  }
+});
+
 app.post('/api/maintenance', requireAuth, (req, res) => {
   const { room_number, event_date, category, description, notes, status } = req.body;
   if (!room_number || !event_date || !description || !String(description).trim()) {
