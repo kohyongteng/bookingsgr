@@ -1201,6 +1201,11 @@ function checkoutReportNextIsoDay(iso) {
 
 const CHECKOUT_REPORT_GROUP_JID = '120363402060306853@g.us'; // "Boston Check In Out"
 const STAFF_GROUP_JID = '120363405393193359@g.us'; // same group whatsapp-bot's config.staffGroupJid uses
+// Housekeeping also needs tomorrow's check-outs: a room checking out is the
+// room they have to turn around for that day's arrival. Same default (and env
+// override) as whatsapp-bot's config.housekeepingGroupJid, so the two projects
+// cannot drift onto different groups.
+const HOUSEKEEPING_GROUP_JID = process.env.HOUSEKEEPING_GROUP_JID || '120363424480363759@g.us';
 const OUTBOX_DIR = 'C:\\apps\\shared-data\\wa-outbox';
 
 // Shared with whatsapp-bot's gapCheck.js - it has no Gmail access of its own,
@@ -1306,5 +1311,6 @@ module.exports = {
   composeCheckoutReport,
   writeOutboxMessage,
   CHECKOUT_REPORT_GROUP_JID,
+  HOUSEKEEPING_GROUP_JID,
   STAFF_GROUP_JID,
 };

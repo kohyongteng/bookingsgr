@@ -916,8 +916,11 @@ app.post('/api/send-checkout-report', requireAuth, (req, res) => {
     const now = new Date();
     const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const message = lib.composeCheckoutReport(db, todayIso);
+    // Both groups, matching the nightly 9PM send in detector.js - the button
+    // and the automatic send must not deliver to different places.
     lib.writeOutboxMessage(lib.CHECKOUT_REPORT_GROUP_JID, message);
-    res.json({ status: 'ok', message });
+    lib.writeOutboxMessage(lib.HOUSEKEEPING_GROUP_JID, message);
+    res.json({ status: 'ok', message, sentTo: ['check-in-out', 'housekeeping'] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {

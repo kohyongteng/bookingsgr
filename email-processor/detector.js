@@ -448,10 +448,14 @@ async function checkAndSendCheckoutReportIfDue() {
   try {
     const db = lib.openDb();
     const message = lib.composeCheckoutReport(db, todayIso);
+    // Sent to housekeeping as well as "Boston Check In Out": the same list of
+    // rooms is what housekeeping has to clean and prepare for the next
+    // check-in. One outbox file per group - the bot sends whatever it finds.
     lib.writeOutboxMessage(lib.CHECKOUT_REPORT_GROUP_JID, message);
+    lib.writeOutboxMessage(lib.HOUSEKEEPING_GROUP_JID, message);
     db.close();
     saveCheckoutReportLastSentDate(todayIso);
-    console.log(`[${now.toISOString()}] Checkout report auto-sent for ${todayIso}.`);
+    console.log(`[${now.toISOString()}] Checkout report auto-sent for ${todayIso} (check-in-out + housekeeping groups).`);
   } catch (err) {
     console.error(`[${now.toISOString()}] Checkout report error:`, err.message);
   }
