@@ -19,6 +19,10 @@ const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const CHECKOUT_REPORT_HOUR = 21; // 9 PM local time
 const CHECKOUT_REPORT_LAST_SENT_PATH = './checkout_report_last_sent.json';
 const DATA_QUALITY_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours - separate, slower timer
+// How long AI Assistant exchanges are kept. Not a disk-space limit (the volume
+// is a handful of questions a day) - the questions themselves contain guest
+// names and unit numbers, so they age out instead of accumulating forever.
+const ASSISTANT_LOG_RETENTION_DAYS = 90;
 const LAST_CHECK_PATH = './detector_last_check.json';
 const AIRBNB_LAST_CHECK_PATH = './detector_airbnb_last_check.json';
 const ADMIN_EMAIL = 'teng20240301@gmail.com'; // change if needed - same address sync-service.js alerts to
@@ -371,6 +375,26 @@ async function runDataQualityCheck() {
   try {
     const db = lib.openDb();
     const allIssues = lib.checkDataQuality(db);
+
+    // Assistant-log retention, hosted on this 6-hour timer because it is the
+    // existing slow housekeeping pass - it needs no timer of its own.
+    // Both sides are UTC: created_at defaults to CURRENT_TIMESTAMP (UTC) and
+    // datetime('now') is UTC too, so there is no local/UTC mismatch here.
+    try {
+      const pruned = db
+        .prepare("DELETE FROM assistant_log WHERE created_at < datetime('now', ?)")
+        .run(`-${ASSISTANT_LOG_RETENTION_DAYS} days`);
+      if (pruned.changes > 0) {
+        console.log(
+          `[${now.toISOString()}] Pruned ${pruned.changes} assistant_log row(s) older than ` +
+          `${ASSISTANT_LOG_RETENTION_DAYS} days.`
+        );
+      }
+    } catch (err) {
+      // Housekeeping must never break the data-quality alert it rides along with.
+      console.error(`[${now.toISOString()}] assistant_log prune failed:`, err.message);
+    }
+
     db.close();
 
     // Only alert on issues that are still operationally relevant: the stay hasn't

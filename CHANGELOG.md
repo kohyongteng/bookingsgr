@@ -137,6 +137,56 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## Assistant audit trail, log retention, review page (2026-09-13)
+
+The AI Assistant already recorded every exchange, but only the outside of it:
+what was asked and what came back. Which tools it called, with which
+arguments, existed solely in the pm2 log - which rotates. That trail is what
+diagnosed the "described a change without calling propose_*" bug, so losing it
+meant losing the means to diagnose the next one.
+
+- **Tool calls are now persisted.** `assistant_log` gains `tool_calls` (JSON:
+  tool name, arguments, and a truncated result) and `queries`, added with the
+  same idempotent `ADD COLUMN` pattern as the bookings financial columns. The
+  trail is deliberately carried on the *job* via `onProgress`, never inside the
+  returned result: `getJob` spreads that result straight into the poll response,
+  so putting it there would ship the whole trail to the phone every two seconds.
+  Tool results are truncated to 500 characters - the point is which tool ran
+  with which arguments, not a second copy of data already in the database.
+- **90-day retention.** Questions contain guest names and unit numbers, so they
+  age out rather than accumulating forever. This is a privacy measure, not a
+  disk-space one - the volume is a handful of questions a day. The delete runs
+  on the existing 6-hour data-quality timer, which needed no new timer of its
+  own. Both sides are UTC (`created_at` defaults to `CURRENT_TIMESTAMP`, and
+  `datetime('now')` is UTC), so there is no local/UTC mismatch in the comparison.
+- **Admin review page** at `/assistant-log.html` with a matching
+  `GET /api/assistant-log`, both behind `requireAdmin` and revealed in the
+  header only after `/api/me` confirms the role - the same two-call pattern the
+  Revenue tab uses (hidden on logout *and* set on show; patching only one of
+  those is how the Revenue tab once stayed invisible after a fresh login).
+  Rows expand to show the full reply and the tool trail. Here `created_at` is
+  converted with SQLite's `'localtime'` for both filtering and display: raw UTC
+  would put late-evening questions on the previous day, since this machine runs
+  at UTC+8.
+- **`rubbish_disposal` gained a lead-in line** ("Refer to the video below to
+  locate the rubbish room."), fixing the same bare-link problem `water_heater`
+  had - a naked YouTube URL with nothing telling the guest why to tap it.
+  Unlike the check-out/ID change below, this one IS applied to both
+  `airbnbTemplates.js` and `whatsapp-bot/src/templates.js`: it is guest-facing
+  wording rather than classifier logic, and both channels answer this question
+  identically.
+
+A `cost` field on maintenance records was considered and deliberately deferred -
+the imported historical records carry no amounts, so any total would be partial.
+
+Verified before deploying: the retention delete was proven against a synthetic
+200-day-old row (removed, with all 9 real rows surviving) rather than merely
+observed not to error on a table where nothing was old enough yet; the trail was
+proven by running one real read-only question end-to-end and confirming both
+that the row was written and that the payload the browser polls contains no
+trail; and the new route returns 401 unauthenticated while a deliberately
+nonsensical sibling path returns 404, so the gate is real routing.
+
 ## Airbnb check-out photos and multi-bubble messages (2026-09-13)
 
 Two bugs in one real thread: guest FAZILAH wrote "Hi, we check out already.

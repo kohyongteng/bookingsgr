@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Assistant Log - Swiss Garden</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f4f5f7;
+    color: #1b2747;
+  }
+  header {
+    background: #003580;
+    color: white;
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 { font-size: 17px; margin: 0; }
+  header a, header button {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  main { padding: 14px; max-width: 1100px; margin: 0 auto; }
+
+  .controls {
+    background: white; border-radius: 10px; padding: 12px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 14px;
+  }
+  .controls label { font-size: 12px; color: #556; display: block; margin-bottom: 4px; }
+  .controls input, .controls select {
+    padding: 8px; border: 1px solid #ccd3e0; border-radius: 6px; font-size: 14px;
+  }
+  .controls button {
+    background: #003580; color: white; border: none; padding: 9px 16px;
+    border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .controls button:disabled { background: #99a; }
+
+  .notice {
+    background: #fff6e0; border: 1px solid #f0d9a0; color: #7a5c00;
+    padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 14px;
+  }
+  .error { background: #fdecea; border: 1px solid #e6a19a; color: #a3271b; }
+
+  table { width: 100%; border-collapse: collapse; background: white; font-size: 13px; }
+  .table-wrap { overflow-x: auto; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eef1f6; vertical-align: top; }
+  th { background: #eef2fb; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; color: #445; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.when { white-space: nowrap; }
+  tr.row { cursor: pointer; }
+  tr.row:hover { background: #f8faff; }
+  tr:last-child td { border-bottom: none; }
+  .muted { color: #99a; font-style: italic; }
+
+  .pill { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: #eef2fb; color: #445; white-space: nowrap; }
+  .pill.executed { background: #e4f5e9; color: #1e7e34; }
+  .pill.pending { background: #fff6e0; color: #7a5c00; }
+  .pill.failed { background: #fdecea; color: #a3271b; }
+  .pill.answered { background: #eef2fb; color: #445; }
+
+  .detail { background: #fbfcfe; }
+  .detail h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .3px; color: #667; margin: 12px 0 5px; }
+  .detail h3:first-child { margin-top: 0; }
+  .detail pre {
+    margin: 0; padding: 9px 10px; background: white; border: 1px solid #e6ebf5;
+    border-radius: 6px; font-size: 12px; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .tool { margin-bottom: 6px; }
+  .tool .name { font-weight: 700; font-size: 12px; }
+  .tool .name.propose { color: #a3143a; }
+  .hint { font-size: 12px; color: #778; margin: 10px 2px 0; }
+  h2 { font-size: 14px; margin: 18px 0 8px; color: #445; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Assistant Log</h1>
+  <div>
+    <a href="/">&larr; Bookings</a>
+  </div>
+</header>
+
+<main>
+  <div id="gate" class="notice" style="display:none;"></div>
+
+  <div id="app" style="display:none;">
+    <div class="controls">
+      <div>
+        <label for="from">From</label>
+        <input type="date" id="from" />
+      </div>
+      <div>
+        <label for="to">To</label>
+        <input type="date" id="to" />
+      </div>
+      <div>
+        <label for="user">User</label>
+        <select id="user"><option value="">All</option></select>
+      </div>
+      <div>
+        <label for="limit">Show</label>
+        <select id="limit">
+          <option value="100">100</option>
+          <option value="250">250</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+      <button id="loadBtn">Load</button>
+    </div>
+
+    <div id="status" class="notice" style="display:none;"></div>
+
+    <div class="table-wrap">
+      <table id="logTable">
+        <thead><tr>
+          <th>When</th><th>User</th><th>Question</th><th>Outcome</th>
+          <th class="num">Tools</th><th class="num">Took</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="hint">Tap any row to see the full reply and which tools the assistant called.
+      Entries older than 90 days are removed automatically.</p>
+  </div>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function shorten(s, n) {
+    const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+    return t.length > n ? t.slice(0, n) + '…' : t;
+  }
+
+  // The outcome is the thing worth scanning for: did this exchange actually
+  // change the database, was it only proposed, or did it fail outright?
+  function outcomePill(r) {
+    if (r.error) return '<span class="pill failed">failed</span>';
+    if (r.executed) return '<span class="pill executed">executed</span>';
+    if (r.pending_summary) return '<span class="pill pending">awaiting confirm</span>';
+    return '<span class="pill answered">answered</span>';
+  }
+
+  function renderTools(raw) {
+    if (!raw) return '<p class="muted" style="font-size:12px;margin:0;">No tools were called - the assistant answered from the question alone.</p>';
+    let calls;
+    try {
+      calls = JSON.parse(raw);
+    } catch (err) {
+      return '<pre>' + esc(raw) + '</pre>';
+    }
+    if (!Array.isArray(calls) || !calls.length) return '<p class="muted" style="font-size:12px;margin:0;">No tools were called.</p>';
+    return calls.map((c) => {
+      const isPropose = String(c.name || '').indexOf('propose_') === 0;
+      return '<div class="tool">'
+        + '<div class="name' + (isPropose ? ' propose' : '') + '">'
+        + esc(c.name) + ' <span class="muted">(step ' + esc(c.iter) + ')</span></div>'
+        + '<pre>' + esc(JSON.stringify(c.input, null, 2))
+        + (c.result ? '\n→ ' + esc(c.result) : '') + '</pre>'
+        + '</div>';
+    }).join('');
+  }
+
+  function detailHtml(r) {
+    let h = '';
+    h += '<h3>Question</h3><pre>' + esc(r.message || '') + '</pre>';
+    h += '<h3>Reply</h3><pre>' + esc(r.reply || '(none)') + '</pre>';
+    if (r.pending_summary) h += '<h3>Proposed change</h3><pre>' + esc(r.pending_summary) + '</pre>';
+    if (r.executed) h += '<h3>Executed</h3><pre>' + esc(r.executed) + '</pre>';
+    if (r.error) h += '<h3>Error</h3><pre>' + esc(r.error) + '</pre>';
+    h += '<h3>Tool calls</h3>' + renderTools(r.tool_calls);
+    h += '<p class="hint">' + esc(r.model || 'unknown model') + ' · '
+      + (r.duration_ms != null ? esc(r.duration_ms) + ' ms' : 'no timing') + '</p>';
+    return h;
+  }
+
+  function render(data) {
+    const tb = $('logTable').querySelector('tbody');
+    tb.innerHTML = '';
+
+    if (!data.rows.length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="6" class="muted">No assistant activity in this range.</td>';
+      tb.appendChild(tr);
+    }
+
+    for (const r of data.rows) {
+      const tr = document.createElement('tr');
+      tr.className = 'row';
+      tr.innerHTML = '<td class="when">' + esc(r.created_local || '') + '</td>'
+        + '<td>' + esc(r.username || '-') + '</td>'
+        + '<td>' + esc(shorten(r.message, 90)) + '</td>'
+        + '<td>' + outcomePill(r) + '</td>'
+        + '<td class="num">' + (r.queries != null ? esc(r.queries) : '<span class="muted">-</span>') + '</td>'
+        + '<td class="num">' + (r.duration_ms != null ? Math.round(r.duration_ms / 100) / 10 + 's' : '-') + '</td>';
+
+      const detail = document.createElement('tr');
+      detail.className = 'detail';
+      detail.style.display = 'none';
+      detail.innerHTML = '<td colspan="6">' + detailHtml(r) + '</td>';
+
+      tr.addEventListener('click', () => {
+        detail.style.display = detail.style.display === 'none' ? '' : 'none';
+      });
+
+      tb.appendChild(tr);
+      tb.appendChild(detail);
+    }
+
+    const s = $('status');
+    if (data.truncated) {
+      s.className = 'notice';
+      s.style.display = '';
+      s.innerHTML = 'Showing the most recent <strong>' + data.rows.length + '</strong> of '
+        + data.total + ' logged exchanges. Narrow the dates or raise the limit to see more.';
+    } else {
+      s.className = 'notice';
+      s.style.display = '';
+      s.textContent = 'Showing ' + data.rows.length + ' of ' + data.total + ' logged exchanges.';
+    }
+  }
+
+  async function load() {
+    const btn = $('loadBtn');
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
+    try {
+      const params = new URLSearchParams();
+      if ($('from').value) params.set('from', $('from').value);
+      if ($('to').value) params.set('to', $('to').value);
+      if ($('user').value) params.set('user', $('user').value);
+      params.set('limit', $('limit').value);
+
+      const res = await fetch('/api/assistant-log?' + params.toString());
+      if (res.status === 403) { showGate('This page is restricted to admin accounts.'); return; }
+      if (res.status === 401) { showGate('Your session has expired. <a href="/">Log in again</a>.'); return; }
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+
+      const data = await res.json();
+
+      // Rebuild the user filter from what is actually in the log, keeping the
+      // current selection if it still exists.
+      const sel = $('user');
+      const current = sel.value;
+      sel.innerHTML = '<option value="">All</option>'
+        + data.usernames.map((u) => '<option value="' + esc(u) + '">' + esc(u) + '</option>').join('');
+      sel.value = data.usernames.indexOf(current) >= 0 ? current : '';
+
+      render(data);
+    } catch (err) {
+      $('status').className = 'notice error';
+      $('status').style.display = '';
+      $('status').textContent = 'Could not load the log: ' + err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Load';
+    }
+  }
+
+  function showGate(html) {
+    $('gate').style.display = '';
+    $('gate').innerHTML = html;
+    $('app').style.display = 'none';
+  }
+
+  (async function init() {
+    try {
+      const res = await fetch('/api/me');
+      if (!res.ok) { showGate('Please <a href="/">log in</a> to view this page.'); return; }
+      const { user } = await res.json();
+      if (user.role !== 'admin') {
+        showGate('This page is restricted to admin accounts. You are signed in as <strong>'
+          + esc(user.username) + '</strong> (' + esc(user.role) + ').');
+        return;
+      }
+      $('app').style.display = '';
+      $('loadBtn').addEventListener('click', load);
+      $('user').addEventListener('change', load);
+      $('limit').addEventListener('change', load);
+      load();
+    } catch (err) {
+      showGate('Could not verify your session: ' + esc(err.message));
+    }
+  })();
+</script>
+</body>
+</html>

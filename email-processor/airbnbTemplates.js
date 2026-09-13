@@ -277,6 +277,7 @@ https://www.youtube.com/shorts/agNmvu4CfJs?feature=share`,
     matchWhen: 'Guest asks how or where to throw away rubbish.',
     reply:
 `Hello! You may throw the trash in the rubbish room, which is located behind the lift. Thank you! 😊
+Refer to the video below to locate the rubbish room.
 https://www.youtube.com/shorts/zvzLJsivGuA`,
   },
   {

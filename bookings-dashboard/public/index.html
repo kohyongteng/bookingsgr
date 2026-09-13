@@ -430,6 +430,7 @@
       <a href="/assistant.html">AI Assistant</a>
       <a href="/maintenance.html">Maintenance</a>
       <a id="revenueLink" href="/revenue.html" style="display:none;">Revenue</a>
+      <a id="assistantLogLink" href="/assistant-log.html" style="display:none;">Assistant Log</a>
       <button id="whatsappToggleBtn">WhatsApp: ...</button>
       <button id="logoutBtn">Logout</button>
     </div>
@@ -631,6 +632,7 @@ function showLogin() {
   // Hide again on logout, so the next (possibly non-admin) user doesn't
   // inherit a visible Revenue tab from the previous session.
   document.getElementById('revenueLink').style.display = 'none';
+  document.getElementById('assistantLogLink').style.display = 'none';
 }
 function showApp() {
   document.getElementById('loginScreen').style.display = 'none';
@@ -641,6 +643,7 @@ function showApp() {
   // a fresh login.
   const isAdmin = currentUser && currentUser.role === 'admin';
   document.getElementById('revenueLink').style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('assistantLogLink').style.display = isAdmin ? 'inline-block' : 'none';
 }
 
 document.getElementById('loginForm').addEventListener('submit', async (e) => {

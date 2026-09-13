@@ -272,6 +272,21 @@ function openDb() {
     )
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_assistant_log_created ON assistant_log(created_at)');
+  // Added 2026-09-13. The columns above record what was asked and what was
+  // answered, but not HOW the assistant got there - which tools it called and
+  // with what arguments. That trail is what diagnosed the "described a change
+  // without calling propose_*" bug, and until now it only ever existed in the
+  // pm2 log, which rotates. Same idempotent ADD COLUMN pattern as the bookings
+  // financial columns further down.
+  const assistantLogCols = new Set(
+    db.prepare('PRAGMA table_info(assistant_log)').all().map((c) => c.name)
+  );
+  if (!assistantLogCols.has('tool_calls')) {
+    db.exec('ALTER TABLE assistant_log ADD COLUMN tool_calls TEXT');
+  }
+  if (!assistantLogCols.has('queries')) {
+    db.exec('ALTER TABLE assistant_log ADD COLUMN queries INTEGER');
+  }
 
   // Per-room appliance/room facts (added 2026-09-12), imported from the
   // SWISS_GARDEN workbook's "room overview" lines ("AC living - Daikin").

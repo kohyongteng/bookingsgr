@@ -364,6 +364,11 @@ async function handleMessage(ctx, { sessionId, username, message, history = [], 
   ];
 
   let proposal = null;
+  // Every tool call and its result, accumulated across iterations and handed
+  // out through onProgress. Deliberately NOT part of the returned result:
+  // getJob spreads that straight to the browser on every poll, and this trail
+  // is for the audit log, not the phone.
+  const toolTrail = [];
 
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
     const response = await client().messages.create({
@@ -443,8 +448,22 @@ async function handleMessage(ctx, { sessionId, username, message, history = [], 
         content = JSON.stringify({ error: err.message });
       }
       results.push({ type: 'tool_result', tool_use_id: tu.id, content });
+      // Result truncated on purpose: a read tool can return a long list of
+      // bookings, and the point of the trail is which tool ran with which
+      // arguments - not a second copy of the data already in the database.
+      toolTrail.push({
+        iter: i + 1,
+        name: tu.name,
+        input: tu.input || {},
+        result: typeof content === 'string' ? content.slice(0, 500) : null,
+      });
     }
     messages.push({ role: 'user', content: results });
+    // Reported a second time now the results are known: the call above fires
+    // before the tools actually run, so it cannot carry them.
+    if (onProgress) {
+      onProgress({ queries: i + 1, tools: toolUses.map((t) => t.name), trail: toolTrail });
+    }
   }
 
   return {
@@ -482,14 +501,15 @@ function reapJobs() {
 // Every exchange is recorded, including the ones that changed nothing, so
 // "what did staff ask and what did it answer" is reviewable later. Logging
 // must never break a reply, hence the swallowed error.
-function logInteraction(ctx, { username, message, result, error, ms }) {
+function logInteraction(ctx, { username, message, result, error, ms, toolCalls, queries }) {
   try {
     const db = new Database(ctx.dbPath);
     try {
       db.prepare(`
         INSERT INTO assistant_log
-          (username, message, reply, pending_summary, executed, error, duration_ms, model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          (username, message, reply, pending_summary, executed, error, duration_ms, model,
+           tool_calls, queries, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `).run(
         username || null,
         message || null,
@@ -498,7 +518,9 @@ function logInteraction(ctx, { username, message, result, error, ms }) {
         result ? result.executed || null : null,
         error || null,
         ms,
-        MODEL
+        MODEL,
+        toolCalls && toolCalls.length ? JSON.stringify(toolCalls) : null,
+        typeof queries === 'number' ? queries : null
       );
     } finally {
       db.close();
@@ -545,7 +567,11 @@ function startJob(ctx, args) {
   // Deliberately not awaited: the caller responds immediately with the id.
   handleMessage(ctx, {
     ...args,
-    onProgress: (p) => { job.queries = p.queries; job.tools = p.tools; },
+    onProgress: (p) => {
+      job.queries = p.queries;
+      job.tools = p.tools;
+      if (p.trail) job.trail = p.trail;
+    },
   })
     .then((result) => {
       job.status = 'done';
@@ -565,6 +591,7 @@ function startJob(ctx, args) {
       logInteraction(ctx, {
         username: args.username, message: args.message,
         result: job.result, error: job.error, ms,
+        toolCalls: job.trail, queries: job.queries,
       });
       console.log(
         `[assistant] ${args.username} ${job.status} in ${ms}ms after ${job.queries} query/queries` +

@@ -357,6 +357,57 @@ app.get('/api/assistant/pending', requireAuth, (req, res) => {
   res.json({ pendingSummary: p ? p.summary : null });
 });
 
+// --- AI Assistant log (admin only) -----------------------------------------
+// Every exchange is already recorded by assistant.js. Without this endpoint it
+// could only be read by querying SQLite by hand - which means opening Claude
+// Code, the exact thing the assistant was built to avoid.
+//
+// created_at is stored as UTC (CURRENT_TIMESTAMP). This machine runs in
+// Malaysia (UTC+8), so filtering or displaying the raw value would be up to
+// 8 hours out - late-evening questions would land on the previous day. The
+// 'localtime' modifier converts on read, so the dates here mean local dates.
+app.get('/api/assistant-log', requireAdmin, (req, res) => {
+  const { from, to, user } = req.query;
+  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+
+  const where = [];
+  const params = [];
+  for (const [name, value] of [['from', from], ['to', to]]) {
+    if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return res.status(400).json({ error: `${name} must be YYYY-MM-DD` });
+    }
+  }
+  if (from) { where.push("date(created_at, 'localtime') >= ?"); params.push(from); }
+  if (to) { where.push("date(created_at, 'localtime') <= ?"); params.push(to); }
+  if (user) { where.push('username = ?'); params.push(user); }
+
+  const db = new Database(DB_PATH, { readonly: true });
+  try {
+    const rows = db.prepare(`
+      SELECT id, username, message, reply, pending_summary, executed, error,
+             duration_ms, model, tool_calls, queries,
+             datetime(created_at, 'localtime') AS created_local
+      FROM assistant_log
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+      ORDER BY id DESC
+      LIMIT ?
+    `).all(...params, limit);
+
+    const usernames = db
+      .prepare('SELECT DISTINCT username FROM assistant_log WHERE username IS NOT NULL ORDER BY username')
+      .all()
+      .map((r) => r.username);
+
+    const total = db.prepare('SELECT COUNT(*) AS n FROM assistant_log').get().n;
+    res.json({ rows, usernames, total, limit, truncated: rows.length === limit });
+  } catch (err) {
+    console.error('[assistant-log] query failed:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.close();
+  }
+});
+
 // --- Revenue reporting (admin only) ----------------------------------------
 // Rows are filtered by CHECK-OUT date: revenue is recognised when the stay
 // completes, which is also how the platforms pay out.
