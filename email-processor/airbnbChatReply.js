@@ -230,7 +230,17 @@ async function runAirbnbChatReplyCycle() {
       }
 
       const guestName = lastBubble.name;
-      const guestText = lastBubble.text;
+      // Take EVERY consecutive newest bubble from the guest, not just the last
+      // one. A guest who writes "we check out already" and then sends three
+      // room photos produces bubbles ending in "Image sent" - reading only the
+      // last bubble threw the actual sentence away, so the classifier saw a
+      // bare "Image sent", called it a passport, and replied about check-in.
+      const trailing = [];
+      for (let b = bubbles.length - 1; b >= 0; b--) {
+        if (!GUEST_ROLES.has(bubbles[b].role)) break;
+        trailing.unshift(bubbles[b]);
+      }
+      const guestText = trailing.map((b) => b.text).join('\n');
 
       // Airbnb represents an emoji reaction (thumbs-up, heart, etc. on a past
       // message) as "Reacted <emoji> to "<quoted message>"" in the digest -
@@ -249,8 +259,20 @@ async function runAirbnbChatReplyCycle() {
 
       console.log(`[${now.toISOString()}] Airbnb chat: new guest message in "${subject}" from ${guestName}: ${guestText}`);
 
-      const templateIds = await airbnbClaude.matchIntents({ text: guestText });
       const { checkIn, checkOut } = parseSubjectDates(subject, now);
+      // The classifier needs to know where in the stay this message sits.
+      // "Image sent" means a passport before check-in, but room-condition
+      // photos at check-out - identical text, opposite meaning, and only the
+      // dates can tell them apart.
+      const todayIso = lib.toLocalISODate(now);
+      const stayStage =
+        checkIn && todayIso < checkIn ? 'before check-in'
+        : checkOut && todayIso >= checkOut ? 'checking out or already checked out'
+        : checkIn || checkOut ? 'currently staying' : 'unknown';
+
+      const templateIds = await airbnbClaude.matchIntents({
+        text: `[Stay status: ${stayStage}. Check-in ${checkIn || 'unknown'}, check-out ${checkOut || 'unknown'}, today ${todayIso}.]\n${guestText}`,
+      });
       // A "technical issue" alert (with room lookup) only makes sense once the
       // guest has actually checked in and could be experiencing a real fault -
       // e.g. "is the aircon centralised?" asked days before arrival is just an

@@ -37,7 +37,11 @@ const TEMPLATES = [
   },
   {
     id: 'guest_id_received',
-    matchWhen: 'Guest sends a photo/document (passport, IC, driving licence) for identity verification.',
+    matchWhen:
+      'Guest sends a photo/document (passport, IC, driving licence) for identity verification. ' +
+      'ONLY applies BEFORE check-in — guests send ID ahead of arrival, never on the way out. ' +
+      'If the stay status says the guest is checking out or has already checked out, an image is ' +
+      'a room-condition photo, NOT identification — use checkout_confirmed instead.',
     reply:
 `Thank you for providing your document for verification. We will send the check-in information, including the lift QR code and door passcode, at 3 PM on the check-in day.
 
@@ -66,7 +70,10 @@ Please take a photo of your QR ticket as a backup — in case the physical ticke
   },
   {
     id: 'checkout_confirmed',
-    matchWhen: 'Guest tells you they have already checked out / left the unit.',
+    matchWhen:
+      'Guest tells you they have already checked out / left the unit, OR — at or after check-out — ' +
+      'sends photos or a video of the room to show the condition they left it in (this is what ' +
+      '"Image sent" means once the stay is ending), whether or not words accompany the images.',
     reply: `Thank you for letting us know. Wish you a safe and pleasant journey ahead! 🙏✨`,
   },
   {

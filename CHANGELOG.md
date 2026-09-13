@@ -137,6 +137,41 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## Airbnb check-out photos and multi-bubble messages (2026-09-13)
+
+Two bugs in one real thread: guest FAZILAH wrote "Hi, we check out already.
+Thanks 😉" and then sent three room-condition photos. Staff saw only the
+photos, and the images were read as identity documents.
+
+- **Only the last chat bubble was read.** `guestText` was
+  `bubbles[bubbles.length - 1]`, so when a guest sends words *and then*
+  images, the digest ends in "Image sent" and the actual sentence was thrown
+  away before classification. Now every *consecutive newest* guest bubble is
+  joined into one message, so words and images are classified together.
+- **"Image sent" was always treated as a passport.** `guest_id_received`
+  described a photo "for identity verification" with no sense of timing, so
+  check-out condition photos matched it and got the pre-arrival reply about
+  lift QR codes and door passcodes. Guests only send ID *before* arrival;
+  photos at check-out are showing the state the room was left in. The stay
+  stage (before check-in / currently staying / checking out) is now computed
+  from the subject-line dates and given to the classifier, `guest_id_received`
+  applies only before check-in, and `checkout_confirmed` covers room-condition
+  photos at or after check-out.
+
+`whatsapp-bot/src/templates.js` was deliberately left alone: the WhatsApp path
+has no stay-phase context to hand the classifier, so the same wording there
+would only make it reject genuine passport photos. The two template files stay
+intentionally divergent on this point.
+
+Verified read-only against the live thread before deploying (the combined
+bubbles now yield the full message, and the stay stage resolves to "checking
+out") plus four stay-phase classification cases: a bare image before check-in
+and passport wording before check-in both still match `guest_id_received`; a
+bare image and the full Fazilah message at check-out both match
+`checkout_confirmed`. A bare image *mid-stay* classifies as `room_cleaning`,
+which is a guess rather than a correct read - harmless only because every
+Airbnb reply is gated behind staff "Proceed" approval.
+
 ## Restart resilience (2026-09-08)
 
 Nothing on this machine started automatically after a Windows restart - not
