@@ -137,6 +137,43 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## WhatsApp luggage-pending flag now survives restarts (2026-09-13)
+
+Found while porting the luggage flow to Airbnb (below): whatsapp-bot had the
+same bug the Airbnb side was just fixed for, and nobody had noticed because it
+only bites when a restart lands inside a specific 24-hour window.
+
+`pendingLuggageConfirmation` was a `Map` of `setTimeout` handles held in
+memory. The bot restarts routinely - deploys, WhatsApp reconnects; four times
+on the day this was written - and every restart silently dropped every pending
+flag. A guest who was asked to confirm luggage storage and answered "Yes"
+after a restart fell straight through to the intent classifier, which sees a
+bare affirmative with no conversational context and replies "You're most
+welcome!". No storeroom details, and no reminder to staff to send the QR -
+exactly the failure reported on Airbnb.
+
+- New `whatsapp-bot/src/luggagePending.js`, following the same shape as
+  `knownGuests.js`: a JSON store under `shared-data`, lazy load, and a
+  corrupt-store failure mode that starts empty rather than taking the bot down
+  (worst case a "Yes" is classified normally - the old behaviour - whereas
+  throwing would stop messages being handled at all).
+- **The 24h expiry is now evaluated on read instead of by a timer.** That is
+  what makes a restart harmless: there is no timer to lose, only a stored
+  timestamp. Expired entries are pruned on write so the file cannot grow
+  without bound.
+- The flag is stored under *every* known JID alias, so a restart that has
+  forgotten its in-memory alias map still matches on whichever form the next
+  message arrives as.
+- `handler.js` keeps its three alias-aware wrappers with unchanged names and
+  call sites; only their bodies now delegate to the store.
+
+Verified by running the store as **separate node processes** - an in-process
+test would prove nothing here, since the bug was precisely that module state
+died with the process. Marking in one process and reading from a fresh one
+confirmed the flag survives; a single alias alone still matches; and an entry
+25 hours old correctly reads as expired. The fake test entry was removed
+afterwards, leaving the store empty.
+
 ## Airbnb luggage-storage confirmation (2026-09-13)
 
 A Japanese guest asked to arrive early and leave luggage. The approved reply

@@ -9,6 +9,9 @@ import { checkAnswerableGap, writeGapAlert } from './gapCheck.js';
 import { TEMPLATE_BY_ID, UNMATCHED, HANDOFF_ACK_TEXT, LUGGAGE_STORAGE_CONFIRMED_TEXT } from './templates.js';
 import { isGroupJid, jidToE164, formatSenderLabel } from './util.js';
 import { isFirstContact, markSeen } from './knownGuests.js';
+// Namespace import so the store's function names don't collide with the
+// alias-aware wrappers of the same name below.
+import * as luggageStore from './luggagePending.js';
 
 // Shared with email-processor's airbnbChatReply.js - a staff "Proceed" reply
 // (quoting an Airbnb reply proposal) in the staff group writes a small file
@@ -85,27 +88,26 @@ export function createHandler(sock) {
   }
 
   // Guests who were just asked to confirm luggage storage (luggage_storage
-  // topic matched) but haven't replied yet - keyed by every known JID alias,
-  // value is the setTimeout handle so it can be cleared once confirmed.
-  // Auto-expires after 24h so a guest who never replies doesn't stay "pending" forever.
-  const pendingLuggageConfirmation = new Map();
-
+  // topic matched) but haven't replied yet - keyed by every known JID alias.
+  //
+  // Persisted to disk rather than held in an in-memory setTimeout: this bot
+  // restarts often, and the timer version silently dropped every pending flag
+  // on restart. A guest who then replied "Yes" fell through to the classifier
+  // and was told "You're most welcome!" instead of receiving the storeroom
+  // details - the same bug that was reported on the Airbnb side.
+  //
+  // The 24h expiry now lives in the store and is evaluated on read, so there
+  // is no timer to lose across a restart. See luggagePending.js.
   function markLuggagePending(jid) {
-    clearLuggagePending(jid); // replace any earlier pending timer for this chat
-    const timeout = setTimeout(() => clearLuggagePending(jid), 24 * 60 * 60 * 1000);
-    for (const k of aliasKeysFor(jid)) pendingLuggageConfirmation.set(k, timeout);
+    luggageStore.markLuggagePending(aliasKeysFor(jid));
   }
 
   function clearLuggagePending(jid) {
-    for (const k of aliasKeysFor(jid)) {
-      const timeout = pendingLuggageConfirmation.get(k);
-      if (timeout) clearTimeout(timeout);
-      pendingLuggageConfirmation.delete(k);
-    }
+    luggageStore.clearLuggagePending(aliasKeysFor(jid));
   }
 
   function isLuggagePending(jid) {
-    return aliasKeysFor(jid).some((k) => pendingLuggageConfirmation.has(k));
+    return luggageStore.isLuggagePending(aliasKeysFor(jid));
   }
 
   // Deliberately deterministic (not AI) - this gates sending storeroom access
