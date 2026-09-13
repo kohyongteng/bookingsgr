@@ -307,4 +307,41 @@ const TECHNICAL_ISSUE_TOPICS = new Set([
   'qr_not_working',
 ]);
 
-module.exports = { TEMPLATES, TEMPLATE_BY_ID, UNMATCHED, TECHNICAL_ISSUE_TOPICS };
+/**
+ * Sent to the guest once they CONFIRM they want luggage storage (the
+ * luggage_storage template above asks them to reply "Yes").
+ *
+ * Deliberately NOT a TEMPLATES entry: it is never matched against a guest
+ * question by the classifier. It is triggered deterministically by the
+ * confirmation itself - see airbnbChatReply.js - because it hands out the
+ * storeroom door passcode.
+ *
+ * Port of whatsapp-bot/src/templates.js's LUGGAGE_STORAGE_CONFIRMED_TEXT.
+ * The two files are maintained separately (ESM vs CommonJS), so a change to
+ * this wording needs applying to both.
+ */
+const LUGGAGE_STORAGE_CONFIRMED_TEXT =
+`Hi! Please follow the instructions below for luggage storage:
+
+• Scan the QR code to access the lobby (each guest must scan individually).
+
+• The storeroom is located at South Tower, Level 12. Once inside the lift, scan the QR code and press Level 12.
+
+• When you arrive at Level 12, walk to the corridor with the large window. You will find the storeroom there.
+https://drive.google.com/drive/folders/18gke67ZHkkTh6RIlMcjc8Z3eBFgwZqSj
+
+• The storeroom door passcode is 777.
+
+• Please use the colored ribbons provided on the table to tie your luggage handles together to avoid any mix-up.
+
+• The luggage storage fee is RM30. Kindly place the cash into the cash box, take a short video as proof, and send it to us. Thank you. 🙏
+
+We will send you the QR code for the South Tower Level 12 storeroom shortly.`;
+
+module.exports = {
+  TEMPLATES,
+  TEMPLATE_BY_ID,
+  UNMATCHED,
+  TECHNICAL_ISSUE_TOPICS,
+  LUGGAGE_STORAGE_CONFIRMED_TEXT,
+};

@@ -137,6 +137,58 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## Airbnb luggage-storage confirmation (2026-09-13)
+
+A Japanese guest asked to arrive early and leave luggage. The approved reply
+went out and ended, as the template does, with 'To confirm luggage storage,
+please reply "Yes"'. The guest replied "Yes" - and got "You're most welcome!".
+They never received the storage details, and nobody was told to send the QR.
+
+The cause is structural, and the investigation corrected a wrong assumption
+in this file's earlier entry: **an Airbnb digest is not a cumulative
+transcript.** Each email carries only the activity that is new since the last
+notification - in this thread, exactly one bubble each. So the digest holding
+"Yes" contained nothing else, and no amount of better bubble-parsing could
+recover what it was answering. (The whole conversation *is* reconstructible
+from the Gmail thread, including messages staff send from the Airbnb app,
+which arrive as readable Co-host bubbles - that is a separate improvement,
+deliberately not built here.)
+
+Rather than invent a mechanism, this mirrors the one whatsapp-bot already
+uses for exactly this exchange:
+
+- `luggage_storage` going out opens a 24-hour window on that thread.
+- A following message is tested against a deterministic regex - not the
+  classifier - before any classification happens. Deliberately not AI: this
+  gates the storeroom door passcode.
+- On confirmation the guest gets `LUGGAGE_STORAGE_CONFIRMED_TEXT` (ported from
+  whatsapp-bot; change one, change both) through the normal "Proceed" gate,
+  and staff get `📦 Luggage storage CONFIRMED by <guest> (<thread>) - please
+  send them the QR code...`. The QR is a per-guest image, so it can never be
+  templated and always needs a human - the reminder is the whole point.
+
+Two deliberate differences from the WhatsApp version:
+
+- **The flag is persisted in the state file, not an in-memory timer.** This
+  process restarts often (six times on the day this was written); an in-memory
+  flag would be lost between the ask and the guest's answer. Note
+  `recordState` rewrites a thread's whole record on every scan, so the flag is
+  explicitly carried forward the same way `subject` already is - without that
+  it would be wiped minutes after being set.
+- **The window opens when the reply is actually SENT, not when proposed.**
+  Airbnb replies wait for staff approval; arming at proposal time would arm it
+  for proposals nobody approved, so a later unrelated "Yes" would be read as
+  confirming storage the guest was never offered.
+
+Verified: 17 detection cases pass, including the real shape a translated
+message arrives in ("Yes" / "Automatically translated from original message:"
+/ "はい") - a whole-string test would never match that, which is why the check
+is per line. Known edge case, accepted because the WhatsApp flow behaves the
+same way: a guest who writes "Yes" and asks something else on the *next* line
+confirms storage, and the extra question is not classified. The state
+carry-forward and the send-time arming are verified by inspection, not by
+execution; the first real luggage exchange is the live checkpoint.
+
 ## Assistant audit trail, log retention, review page (2026-09-13)
 
 The AI Assistant already recorded every exchange, but only the outside of it:

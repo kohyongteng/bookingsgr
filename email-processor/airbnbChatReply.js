@@ -18,7 +18,12 @@ const fs = require('fs');
 const path = require('path');
 const lib = require('./lib');
 const airbnbClaude = require('./airbnbClaude');
-const { TEMPLATE_BY_ID, UNMATCHED, TECHNICAL_ISSUE_TOPICS } = require('./airbnbTemplates');
+const {
+  TEMPLATE_BY_ID,
+  UNMATCHED,
+  TECHNICAL_ISSUE_TOPICS,
+  LUGGAGE_STORAGE_CONFIRMED_TEXT,
+} = require('./airbnbTemplates');
 
 const STATE_PATH = path.join(__dirname, 'airbnb-chat-reply-state.json');
 const PENDING_APPROVALS_PATH = path.join(__dirname, 'airbnb-pending-approvals.json');
@@ -46,6 +51,25 @@ const ROLE_PATTERN = 'Booker|Guest|Host|Co-host';
 // turns up too (seen on a post-checkout thank-you message) - both mean the
 // same thing: this bubble is the guest talking, not staff.
 const GUEST_ROLES = new Set(['Booker', 'Guest']);
+
+// ---------- Luggage storage confirmation ----------
+// Deliberately deterministic, not AI: this gates the storeroom door passcode,
+// and the luggage_storage template explicitly instructs the guest to reply
+// "Yes", so only that instructed word (and close variants) counts. Mirrors
+// whatsapp-bot/src/handler.js's LUGGAGE_CONFIRM_REGEX.
+//
+// Checked PER LINE because Airbnb appends its own translation block - a
+// Japanese guest's "はい" arrives as:
+//   "Yes\r\n\r\nAutomatically translated from original message:\r\n\r\nはい"
+// A whole-string test would never match that; the first line does.
+const LUGGAGE_CONFIRM_REGEX = /^(yes|yeah|yep|yup|y)[\s!.,]*(please)?[\s!.,]*$/i;
+const LUGGAGE_CONFIRM_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function isLuggageConfirmation(text) {
+  return String(text || '')
+    .split('\n')
+    .some((line) => LUGGAGE_CONFIRM_REGEX.test(line.trim()));
+}
 
 // Airbnb's digest body lists every chat bubble so far, each as a
 // Name / Role / Message block. Splits on the known, fixed role tokens
@@ -143,14 +167,24 @@ async function runAirbnbChatReplyCycle() {
   // anything was sent - this is the answer to "which emails have already
   // been scanned and what happened to them". A threadId missing from this
   // file has simply never been seen yet by this cycle.
-  function recordState(threadId, { internalDate, messageId, subject, guestName, guestText, outcome }) {
+  function recordState(threadId, { internalDate, messageId, subject, guestName, guestText, outcome, awaitingLuggageConfirm }) {
+    const prev = state[threadId];
     state[threadId] = {
       internalDate,
       messageId,
-      subject: subject || (state[threadId] && state[threadId].subject) || null,
+      subject: subject || (prev && prev.subject) || null,
       guestName: guestName ?? null,
       guestText: guestText ?? null,
       outcome,
+      // Carried forward exactly like subject. This whole record is rewritten
+      // on every scan of the thread, so without an explicit carry-forward the
+      // flag set when the luggage reply was SENT would be wiped by the next
+      // cycle - minutes later, and long before the guest answers "Yes".
+      // Pass null explicitly to clear it; omit it to preserve it.
+      awaitingLuggageConfirm:
+        awaitingLuggageConfirm !== undefined
+          ? awaitingLuggageConfirm
+          : (prev && prev.awaitingLuggageConfirm) || null,
       scannedAt: now.toISOString(),
     };
   }
@@ -259,6 +293,68 @@ async function runAirbnbChatReplyCycle() {
 
       console.log(`[${now.toISOString()}] Airbnb chat: new guest message in "${subject}" from ${guestName}: ${guestText}`);
 
+      // Luggage-storage confirmation, checked BEFORE classification so a plain
+      // "Yes" answering our own confirm-ask never reaches the classifier. Each
+      // Airbnb digest carries only its own new activity - not a transcript -
+      // so the classifier sees the bare word, reads it as a pleasantry, and
+      // proposes "You're most welcome!" (observed on thread 1a098a91d26dcce3).
+      //
+      // Mirrors whatsapp-bot/src/handler.js, with one deliberate difference:
+      // the flag is persisted in state rather than held in an in-memory
+      // timer, because this process restarts often and an in-memory flag
+      // would be lost between the ask and the guest's answer.
+      const awaitingSince = lastProcessed && lastProcessed.awaitingLuggageConfirm;
+      const awaitingLive =
+        awaitingSince &&
+        new Date(awaitingSince).getTime() + LUGGAGE_CONFIRM_WINDOW_MS > now.getTime();
+
+      if (awaitingLive && isLuggageConfirmation(guestText)) {
+        const to = getHeader(latest, 'Reply-To');
+        const inReplyTo = getHeader(latest, 'Message-Id') || getHeader(latest, 'Message-ID');
+
+        if (to && inReplyTo) {
+          pendingApprovals[thread.id] = {
+            to,
+            inReplyTo,
+            subject,
+            replyBody: LUGGAGE_STORAGE_CONFIRMED_TEXT,
+            guestName,
+            guestText,
+            templateIds: ['luggage_storage_confirmed'],
+            lastKnownInternalDate: latestInternalDate,
+            createdAt: now.toISOString(),
+          };
+          saveJson(PENDING_APPROVALS_PATH, pendingApprovals);
+
+          lib.writeOutboxMessage(
+            lib.STAFF_GROUP_JID,
+            `📋 Airbnb reply ready for approval\n[ref: ${thread.id}]\n\n` +
+              `Guest: ${guestName}\nThread: ${subject}\nAsked: "${guestText}"\n\n` +
+              `Proposed reply:\n"${LUGGAGE_STORAGE_CONFIRMED_TEXT}"\n\n` +
+              `Reply "Proceed" (quoting this message) to send this to the guest.`
+          );
+        }
+
+        // Sent regardless of whether the reply could be proposed: the QR is a
+        // per-guest image, so it can never be templated and always needs a
+        // human. Same reminder the WhatsApp flow sends.
+        lib.writeOutboxMessage(
+          lib.STAFF_GROUP_JID,
+          `📦 Luggage storage CONFIRMED by ${guestName} (${subject}) — please send them the QR code for the South Tower Level 12 storeroom.`
+        );
+
+        recordState(thread.id, {
+          internalDate: latestInternalDate,
+          messageId: latest.id,
+          subject,
+          guestName,
+          guestText,
+          outcome: 'luggage-confirmed',
+          awaitingLuggageConfirm: null, // explicit null clears it - this thread is no longer waiting
+        });
+        continue;
+      }
+
       const { checkIn, checkOut } = parseSubjectDates(subject, now);
       // The classifier needs to know where in the stay this message sits.
       // "Image sent" means a passport before check-in, but room-condition
@@ -337,6 +433,10 @@ async function runAirbnbChatReplyCycle() {
             replyBody,
             guestName,
             guestText,
+            // Recorded so the approval step knows WHICH templates actually
+            // went out - specifically whether luggage_storage did, since that
+            // is what opens the 24h window for a "Yes" confirmation.
+            templateIds: matchedIds,
             lastKnownInternalDate: latestInternalDate,
             createdAt: now.toISOString(),
           };
@@ -423,6 +523,19 @@ async function checkAndSendApprovedAirbnbReplies() {
       });
       console.log(`[${now.toISOString()}] Airbnb reply sent for thread ${ref} (approved by staff).`);
 
+      // The confirmation window opens only NOW, when the ask has actually
+      // reached the guest. Arming it at proposal time would arm it even for
+      // proposals staff never approved - so a later, unrelated "Yes" would be
+      // misread as confirming storage the guest was never offered.
+      if (Array.isArray(pending.templateIds) && pending.templateIds.includes('luggage_storage')) {
+        const state = loadJson(STATE_PATH, {});
+        if (state[ref]) {
+          state[ref].awaitingLuggageConfirm = now.toISOString();
+          saveJson(STATE_PATH, state);
+          console.log(`[${now.toISOString()}] Luggage confirmation window opened for thread ${ref}.`);
+        }
+      }
+
       delete pendingApprovals[ref];
       saveJson(PENDING_APPROVALS_PATH, pendingApprovals);
       fs.unlinkSync(fullPath);
@@ -439,4 +552,5 @@ module.exports = {
   // exported for testing
   parseDigestBubbles,
   parseSubjectDates,
+  isLuggageConfirmation,
 };
