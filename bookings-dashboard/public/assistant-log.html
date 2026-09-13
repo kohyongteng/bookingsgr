@@ -138,6 +138,9 @@
       </table>
     </div>
     <p class="hint">Tap any row to see the full reply and which tools the assistant called.
+      A change and its confirmation are two separate entries: the assistant proposes, then
+      "Proceed" saves it. A proposal shows as <strong>saved</strong> once its confirmation is
+      found, or <strong>not confirmed</strong> if nobody ever confirmed it.
       Entries older than 90 days are removed automatically.</p>
   </div>
 </main>
@@ -160,7 +163,14 @@
   function outcomePill(r) {
     if (r.error) return '<span class="pill failed">failed</span>';
     if (r.executed) return '<span class="pill executed">executed</span>';
-    if (r.pending_summary) return '<span class="pill pending">awaiting confirm</span>';
+    if (r.pending_summary) {
+      // A proposal and its "Proceed" are separate rows. Without pairing them
+      // a proposal reads as still-waiting forever, even when it was confirmed
+      // seconds later - which is exactly how a saved record looked unsaved.
+      return r.confirmed_by_id
+        ? '<span class="pill executed">saved</span>'
+        : '<span class="pill pending">not confirmed</span>';
+    }
     return '<span class="pill answered">answered</span>';
   }
 
@@ -188,7 +198,17 @@
     let h = '';
     h += '<h3>Question</h3><pre>' + esc(r.message || '') + '</pre>';
     h += '<h3>Reply</h3><pre>' + esc(r.reply || '(none)') + '</pre>';
-    if (r.pending_summary) h += '<h3>Proposed change</h3><pre>' + esc(r.pending_summary) + '</pre>';
+    if (r.pending_summary) {
+      h += '<h3>Proposed change</h3><pre>' + esc(r.pending_summary) + '</pre>';
+      if (r.confirmed_by_id) {
+        h += '<p class="hint">Confirmed and saved'
+          + (r.confirmed_local ? ' at ' + esc(r.confirmed_local) : '')
+          + ' (entry #' + esc(r.confirmed_by_id) + ', where the staff member typed "Proceed").</p>';
+      } else if (!r.executed) {
+        h += '<p class="hint">No matching confirmation was ever recorded, so this change was '
+          + '<strong>not saved</strong>.</p>';
+      }
+    }
     if (r.executed) h += '<h3>Executed</h3><pre>' + esc(r.executed) + '</pre>';
     if (r.error) h += '<h3>Error</h3><pre>' + esc(r.error) + '</pre>';
     h += '<h3>Tool calls</h3>' + renderTools(r.tool_calls);

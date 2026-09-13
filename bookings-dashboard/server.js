@@ -389,13 +389,32 @@ app.get('/api/assistant-log', requireAdmin, (req, res) => {
 
   const db = new Database(DB_PATH, { readonly: true });
   try {
+    // A proposal and the "Proceed" that confirms it are two separate rows, so
+    // a proposal row read on its own looks like it is still waiting - even
+    // when it was confirmed seconds later. The only thing linking them is the
+    // summary text: the Proceed row's `executed` is exactly the proposal
+    // row's `pending_summary`.
+    //
+    // Deliberately correlated over the WHOLE table rather than the page being
+    // returned: with a date filter the confirming row can fall outside the
+    // result set, which would make a saved change look abandoned.
+    const CONFIRMED_BY = `
+      SELECT MIN(e.id) FROM assistant_log e
+       WHERE l.pending_summary IS NOT NULL AND l.executed IS NULL
+         AND e.executed = l.pending_summary
+         AND e.username = l.username
+         AND e.id > l.id`;
+
     const rows = db.prepare(`
-      SELECT id, username, message, reply, pending_summary, executed, error,
-             duration_ms, model, tool_calls, queries,
-             datetime(created_at, 'localtime') AS created_local
-      FROM assistant_log
+      SELECT l.id, l.username, l.message, l.reply, l.pending_summary, l.executed, l.error,
+             l.duration_ms, l.model, l.tool_calls, l.queries,
+             datetime(l.created_at, 'localtime') AS created_local,
+             (${CONFIRMED_BY}) AS confirmed_by_id,
+             (SELECT datetime(e2.created_at, 'localtime') FROM assistant_log e2
+               WHERE e2.id = (${CONFIRMED_BY})) AS confirmed_local
+      FROM assistant_log l
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-      ORDER BY id DESC
+      ORDER BY l.id DESC
       LIMIT ?
     `).all(...params, limit);
 

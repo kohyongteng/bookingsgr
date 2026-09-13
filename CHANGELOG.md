@@ -137,6 +137,41 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## Assistant log showed saved changes as still pending (2026-09-13)
+
+A maintenance record that had definitely been saved still read "awaiting
+confirm" in the log, which reasonably looked like the change was stuck.
+
+Nothing was stuck - the page was showing each exchange in isolation. A change
+takes TWO entries: the assistant proposes (recording `pending_summary`), then
+the staff member types "Proceed", which is a separate row recording
+`executed`. Read alone, the proposal row says "awaiting confirm" forever, even
+when it was confirmed sixteen seconds later. The reader wants to know "did
+this happen?"; the page was answering "was this pending at the time?".
+
+The two rows are linked by the summary text: the Proceed row's `executed` is
+exactly the proposal row's `pending_summary`.
+
+- `/api/assistant-log` now correlates the two and returns `confirmed_by_id`
+  and `confirmed_local`. The correlation runs over the WHOLE table, not the
+  page being returned - with a date filter the confirming row can fall outside
+  the results, which would make a saved change look abandoned.
+- A proposal now shows as **saved** once its confirmation is found, or **not
+  confirmed** if none exists. Expanding it names the confirming entry and its
+  time, or states plainly that the change was never saved.
+
+This distinction was previously invisible, and it matters: of three proposals
+in the log, two were confirmed and one ("record S2005 today bedroom AC
+leaking", entry #2) never was - so that record does not exist. All three had
+looked identical.
+
+Verified by running the endpoint's query verbatim against the database before
+deploying: #11 pairs to #12, #8 to #9, #2 stays unpaired, and executed rows
+carry no pairing of their own. `node --check` alone would not have caught a
+bad correlation - the failure mode is a silent NULL on every row, which would
+have labelled everything "not confirmed" and looked entirely plausible, so
+the test asserts that at least one pairing actually resolves.
+
 ## AI Assistant reported a row limit as fact (2026-09-13)
 
 Asked "how many empty rooms, in %", the assistant answered "20 of 23 units
