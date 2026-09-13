@@ -105,9 +105,10 @@ function toolDefs(rooms) {
     ),
     strict(
       'get_occupancy',
-      'How full the property is on a date: bookable units, occupied, vacant, and the percentages, already calculated. ' +
+      'Availability on a date: capacity, how many are booked, how many are left, per room category, already calculated. ' +
+        'Works for future dates, where physical units have not been allocated yet. ' +
         'Use this for ANY question about how many rooms are empty, free, available, or booked, and for any occupancy or ' +
-        'vacancy percentage. Never answer those by counting find_bookings rows.',
+        'vacancy percentage. Never answer those by counting find_bookings rows or assigned units.',
       { date: { type: 'string', description: 'Date to check, YYYY-MM-DD. Defaults to today.' } },
       []
     ),
@@ -201,48 +202,95 @@ function runReadTool(ctx, name, input) {
     if (name === 'get_occupancy') {
       const date = isoDate(input.date) ? input.date : todayISO();
 
-      // Sellable inventory only. N1102 (and anything else in
-      // maintenanceOnlyRooms) is staff accommodation - never a vacancy, and
-      // never part of the denominator.
+      // Availability is BOOKINGS COUNTED AGAINST CAPACITY, never "which
+      // physical units have something in them". Units are only allocated
+      // around the evening before check-in, so on a future date most bookings
+      // have no assigned_room at all - counting distinct assigned rooms
+      // reported those units as free when they were already sold. Measured on
+      // the day this was fixed: tomorrow had 22 bookings and only 13 assigned.
       const excluded = new Set(ctx.maintenanceOnlyRooms || []);
-      const bookable = (ctx.rooms || []).filter((r) => !excluded.has(r));
+      const pools = ctx.roomPools || {};
 
-      const occupied = db
+      const bookedRows = db
         .prepare(`
-          SELECT DISTINCT assigned_room FROM bookings
+          SELECT COALESCE(NULLIF(TRIM(room_category), ''), '(no category)') AS cat, COUNT(*) AS n
+          FROM bookings
           WHERE status != 'cancelled' AND check_in <= ? AND check_out > ?
-            AND assigned_room IS NOT NULL AND assigned_room != ''
+          GROUP BY cat
         `)
-        .all(date, date)
-        .map((r) => r.assigned_room)
-        .filter((r) => !excluded.has(r));
+        .all(date, date);
 
-      const occupiedSet = new Set(occupied);
-      const vacant = bookable.filter((r) => !occupiedSet.has(r));
+      const bookedByCat = {};
+      for (const r of bookedRows) bookedByCat[r.cat] = r.n;
 
-      // A booking with no room assigned still fills a unit. Surfaced so the
-      // vacancy figure cannot quietly overstate what is actually sellable.
-      const unassigned = db
+      const by_category = Object.entries(pools).map(([category, capacity]) => {
+        const booked = bookedByCat[category] || 0;
+        return {
+          category,
+          capacity,
+          booked,
+          available: Math.max(0, capacity - booked),
+          overbooked: booked > capacity ? booked - capacity : 0,
+        };
+      });
+
+      // A booking with a missing or unrecognised category still occupies a
+      // unit. Counted and surfaced rather than dropped, so the totals can
+      // never quietly understate how full the property is.
+      const knownCats = new Set(Object.keys(pools));
+      const uncategorised = Object.entries(bookedByCat)
+        .filter(([cat]) => !knownCats.has(cat))
+        .reduce((sum, [, n]) => sum + n, 0);
+
+      const capacity = by_category.reduce((a, c) => a + c.capacity, 0);
+      const booked = by_category.reduce((a, c) => a + c.booked, 0) + uncategorised;
+      const available = Math.max(0, capacity - booked);
+
+      const assignedCount = db
         .prepare(`
           SELECT COUNT(*) AS n FROM bookings
           WHERE status != 'cancelled' AND check_in <= ? AND check_out > ?
-            AND (assigned_room IS NULL OR assigned_room = '')
+            AND assigned_room IS NOT NULL AND assigned_room != ''
         `)
         .get(date, date).n;
+      const awaitingAssignment = booked - assignedCount;
 
-      const pct = (n) => (bookable.length ? Math.round((n / bookable.length) * 1000) / 10 : 0);
+      // Naming specific free units is only honest once every booking on that
+      // date has a unit. Before then the free-looking units are simply the
+      // ones nothing has been allocated to yet.
+      const assignedRooms = new Set(
+        db
+          .prepare(`
+            SELECT DISTINCT assigned_room FROM bookings
+            WHERE status != 'cancelled' AND check_in <= ? AND check_out > ?
+              AND assigned_room IS NOT NULL AND assigned_room != ''
+          `)
+          .all(date, date)
+          .map((r) => r.assigned_room)
+      );
+      const freeNamedUnits = (ctx.rooms || [])
+        .filter((r) => !excluded.has(r))
+        .filter((r) => !assignedRooms.has(r));
+
+      const pct = (n) => (capacity ? Math.round((n / capacity) * 1000) / 10 : 0);
 
       return {
         date,
-        bookable_units: bookable.length,
-        occupied_units: occupied.length,
-        vacant_units: vacant.length,
-        vacant_percent: pct(vacant.length),
-        occupancy_percent: pct(occupied.length),
-        vacant_rooms: vacant,
-        unassigned_bookings: unassigned,
+        capacity,
+        booked,
+        available,
+        available_percent: pct(available),
+        occupancy_percent: pct(booked),
+        by_category,
+        uncategorised_bookings: uncategorised,
+        awaiting_room_assignment: awaitingAssignment,
+        vacant_rooms: awaitingAssignment === 0 ? freeNamedUnits : null,
+        vacant_rooms_note:
+          awaitingAssignment > 0
+            ? `${awaitingAssignment} booking(s) on this date have no unit allocated yet (units are assigned near check-in), so specific free unit numbers cannot be listed. The counts above are correct regardless.`
+            : null,
         excluded_rooms: [...excluded],
-        note: 'These figures are already calculated over the full data set. Report them as given - do not recount or recalculate.',
+        note: 'Availability is bookings counted against capacity, per category. These figures are already calculated - report them as given, do not recount.',
       };
     }
 
@@ -386,7 +434,8 @@ You CANNOT change the database yourself. For any change you must call a propose_
 
 Rules:
 - Read first when the instruction refers to a booking ("N3001 checks out tomorrow at 2pm"): use find_bookings to identify the exact reservation before proposing a note. If more than one booking matches, ask which one instead of guessing.
-- Occupancy: for "how many rooms are empty / free / available / booked", or any occupancy or vacancy percentage, call get_occupancy and report the figures it returns. Do NOT work occupancy out by counting find_bookings rows.${maintenanceOnly.length ? ` ${maintenanceOnly.join(', ')} is staff accommodation, not sellable inventory - it is never a vacancy and never part of the total.` : ''}
+- Occupancy: for "how many rooms are empty / free / available / booked", or any occupancy or vacancy percentage, call get_occupancy and report the figures it returns. Do NOT work occupancy out by counting find_bookings rows or assigned units - availability is bookings counted against capacity per category, and a booking with no unit allocated is still a sold room.
+- Physical units are only allocated near check-in, so for a future date the specific free unit numbers are not decided yet. When get_occupancy returns vacant_rooms as null, give the counts and say which units is not yet determined - never present unallocated units as free rooms.${maintenanceOnly.length ? ` ${maintenanceOnly.join(', ')} is staff accommodation, not sellable inventory - it is never a vacancy and never part of the total.` : ''}
 - Every list tool returns "total" (how many records actually match) alongside "returned" (how many you were given) and "truncated". If truncated is true you have NOT seen everything - say so, and never conclude that something does not exist ("no unit has ever had this done") from a truncated list.
 - An agreed late check-out time is recorded as a booking NOTE. You cannot change check-in/check-out dates or room assignment - if asked, say so plainly and offer to record it as a note.
 - Maintenance: if the instruction describes something that happened and is already handled, propose status "done"; if it still needs attention, propose "open".
@@ -693,4 +742,9 @@ function getJob(sessionId, id) {
   return { status: 'done', elapsedMs, queries: job.queries, ...job.result };
 }
 
-module.exports = { handleMessage, startJob, getJob, getPending, clearPending, CONFIRM_LINE, MODEL };
+module.exports = {
+  handleMessage, startJob, getJob, getPending, clearPending, CONFIRM_LINE, MODEL,
+  // exported for testing - lets availability be checked directly, without
+  // spending a model call on every assertion
+  runReadTool,
+};

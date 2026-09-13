@@ -137,6 +137,50 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## Availability must count bookings, not assigned units (2026-09-14)
+
+The `get_occupancy` tool added yesterday counted occupied units as
+`DISTINCT assigned_room`. That is only meaningful for today. Physical units
+are allocated around the evening before check-in, so on any future date most
+bookings have no unit yet - and every one of them was being counted as an
+empty room.
+
+The owner spotted it before it did any damage. The measured scale, on the day
+it was fixed:
+
+| Date | Bookings | Units assigned | Reported free (wrong) |
+|------|----------|----------------|-----------------------|
+| today | 22 | 21 | 1 |
+| tomorrow | 22 | 13 | 9 |
+| +2 days | 21 | 10 | 11 |
+| +5 days | 18 | 7 | 11 |
+
+Tomorrow was sold out and would have been reported as having nine rooms free.
+This is the same failure as the row-limit bug below - a number that is not the
+thing it is being read as - but pointing the dangerous way: it invites
+overbooking rather than merely understating.
+
+- Availability is now bookings counted against capacity, per room category
+  (Normal 12, Double Bedroom 9, Small 1 - passed in from `ROOM_POOLS`). A
+  booking with no unit allocated is still a sold room.
+- `by_category` is returned as well as the total, which the old tool could not
+  express at all: it can now say the one free unit on a date is a Double
+  Bedroom, or that all four free are Normal Rooms.
+- A booking whose category is missing or unrecognised is counted and surfaced
+  as `uncategorised_bookings` rather than dropped, so the totals can never
+  quietly understate how full the property is.
+- Specific free unit numbers are withheld (`vacant_rooms: null`) whenever any
+  booking on that date is still unallocated, with a note explaining why.
+  Listing "free" units before allocation would just be naming the units
+  nothing happens to have been assigned to yet.
+
+Verified by calling the tool directly for today, +1, +2, +5 and +14 days and
+cross-checking every figure against an independent uncapped SQL count: booked
+totals match, available equals capacity minus booked, the per-category figures
+sum to the total, and unit names are withheld wherever anything is still
+unallocated. `runReadTool` is exported for this, so availability can be
+asserted without spending a model call per check.
+
 ## Assistant log showed saved changes as still pending (2026-09-13)
 
 A maintenance record that had definitely been saved still read "awaiting

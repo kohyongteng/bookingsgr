@@ -334,6 +334,11 @@ app.post('/api/assistant/message', requireAuth, (req, res) => {
         // N1102 is staff accommodation, not sellable inventory. Without this
         // the assistant counts it as a bookable unit and reports it as vacant.
         maintenanceOnlyRooms: MAINTENANCE_ONLY_ROOMS,
+        // Capacity per category, so availability can be counted as bookings
+        // against capacity. Physical units are only assigned near check-in,
+        // so for any future date the assigned_room column cannot answer
+        // "how many rooms are left".
+        roomPools: ROOM_POOLS,
       },
       {
         sessionId: req.sessionID,
