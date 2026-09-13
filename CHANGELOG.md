@@ -137,6 +137,44 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## Airbnb: short context-dependent replies go to a human (2026-09-13)
+
+The luggage fix above solves one exchange by remembering one fact. It does
+nothing for the general case: an Airbnb digest carries only its own new
+activity, so any reply whose meaning lives in the *previous* message reaches
+the classifier bare. "Yes" became "You're most welcome!"; "11am" answering
+"let us know your estimated arrival time" would match nothing; "the second
+one" cannot possibly be resolved.
+
+The alternative was to reconstruct a transcript from the Gmail thread (which
+does hold everything, including messages staff send from the Airbnb app) and
+give it to the classifier. That was considered and rejected: it adds tokens to
+every single classification forever to serve a small fraction of messages, and
+it changes the failure mode for the worse - today an unreadable message
+produces silence, whereas a model given four messages of history can answer
+the *old* question confidently. Handing these to a human is both cheaper and
+safer.
+
+- A short reply that only makes sense against the earlier conversation is now
+  forwarded to the staff group as `💬 AIRBNB FOLLOW-UP from <guest>` and gets
+  no proposed reply. The classifier is not called at all, so this also saves
+  an API request.
+- Checked AFTER the luggage window (where "Yes" has a known meaning and is
+  handled properly) and BEFORE classification.
+- Covers: bare yes/no/ok/sure/correct, a bare time or number ("11am", "2 pm",
+  "10.30", "3"), and references to something we listed ("the second one",
+  "option 2", "that one"). The translated wrapper Airbnb adds is stripped
+  first, so a Japanese or Chinese guest's reply is tested on the English half.
+- Deliberately NOT covered: pleasantries that are complete in themselves -
+  "thanks", "ok thanks", "noted", "got it" still receive the normal
+  `casual_ack` reply. Sweeping those in would fill the staff group with noise
+  and stop answering messages that are perfectly answerable.
+
+Verified with 30 detection cases, both directions: every bare answer forwards,
+every pleasantry and every real question does not, including "Yes, but what
+time is check-in?" (a real question that happens to start with yes) and "3
+people will arrive tonight" (a number inside a real sentence).
+
 ## WhatsApp luggage-pending flag now survives restarts (2026-09-13)
 
 Found while porting the luggage flow to Airbnb (below): whatsapp-bot had the

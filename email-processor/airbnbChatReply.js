@@ -71,6 +71,44 @@ function isLuggageConfirmation(text) {
     .some((line) => LUGGAGE_CONFIRM_REGEX.test(line.trim()));
 }
 
+// ---------- Context-dependent follow-ups ----------
+// A guest writing in another language arrives as:
+//   "<translation>\r\n\r\nAutomatically translated from original message:\r\n\r\n<original>"
+// Only the translated part is worth testing - the original is the same words
+// in a script these patterns don't cover.
+function primaryText(text) {
+  const s = String(text || '');
+  const idx = s.search(/Automatically translated from original message:/i);
+  return (idx >= 0 ? s.slice(0, idx) : s).replace(/\s+/g, ' ').trim();
+}
+
+// Replies that only mean anything alongside the message they answer. Each
+// Airbnb digest carries just its own new activity, so the classifier sees
+// these bare and guesses - "Yes" became "You're most welcome!", and "11am"
+// would match nothing at all. These go to staff instead of being answered.
+//
+// Deliberately NARROW. Pleasantries that are complete in themselves
+// ("thanks", "noted", "got it") are NOT included - those still get the normal
+// casual_ack auto-reply, and sweeping them in here would just fill the staff
+// group with noise.
+const CONTEXT_DEPENDENT_PATTERNS = [
+  // Bare yes/no - an answer to a question we can no longer see.
+  // (A "Yes" inside a live luggage window is handled earlier and never reaches this.)
+  /^(yes|yeah|yep|yup|y|sure|ok|okay|no|nope|nah|correct|right)[\s!.,]*(please)?[\s!.,]*$/i,
+  // A bare time or number: "11am", "2 pm", "10.30", "3".
+  /^(about|around|approx\.?|approximately)?\s*\d{1,2}([:.]\d{2})?\s*(am|pm)?[\s!.,]*$/i,
+  // Pointing at an option we listed: "the second one", "option 2", "that one".
+  /^(the\s+)?(first|second|third|1st|2nd|3rd)(\s+(one|option|choice))?[\s!.,]*$/i,
+  /^option\s*\d+[\s!.,]*$/i,
+  /^(that|this)\s+one[\s!.,]*$/i,
+];
+
+function isContextDependent(text) {
+  const s = primaryText(text);
+  if (!s) return false;
+  return CONTEXT_DEPENDENT_PATTERNS.some((re) => re.test(s));
+}
+
 // Airbnb's digest body lists every chat bubble so far, each as a
 // Name / Role / Message block. Splits on the known, fixed role tokens
 // (guest names vary, so those can't be used as anchors) and returns them in
@@ -355,6 +393,28 @@ async function runAirbnbChatReplyCycle() {
         continue;
       }
 
+      // A short reply that only makes sense against the earlier conversation.
+      // Checked AFTER the luggage window above (where "Yes" has a known
+      // meaning) and BEFORE classification - which also saves the API call.
+      // Forwarded to staff rather than answered: the classifier has no
+      // conversation history, so any reply it proposes here is a guess.
+      if (isContextDependent(guestText)) {
+        lib.writeOutboxMessage(
+          lib.STAFF_GROUP_JID,
+          `💬 AIRBNB FOLLOW-UP from ${guestName} (${subject}): ${guestText}\n` +
+            `(Short reply that only makes sense with the earlier conversation - no auto-reply proposed.)`
+        );
+        recordState(thread.id, {
+          internalDate: latestInternalDate,
+          messageId: latest.id,
+          subject,
+          guestName,
+          guestText,
+          outcome: 'forwarded-context-dependent',
+        });
+        continue;
+      }
+
       const { checkIn, checkOut } = parseSubjectDates(subject, now);
       // The classifier needs to know where in the stay this message sits.
       // "Image sent" means a passport before check-in, but room-condition
@@ -553,4 +613,5 @@ module.exports = {
   parseDigestBubbles,
   parseSubjectDates,
   isLuggageConfirmation,
+  isContextDependent,
 };
