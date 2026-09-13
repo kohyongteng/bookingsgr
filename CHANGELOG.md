@@ -137,6 +137,47 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## AI Assistant reported a row limit as fact (2026-09-13)
+
+Asked "how many empty rooms, in %", the assistant answered "20 of 23 units
+occupied, so 3 empty ≈ 13%" and named N1102, S1503 and S3203 as vacant. Every
+part of that was wrong: 22 units were occupied, S1503 and S3203 were among
+them, and nothing at all was free. The owner would have believed three rooms
+were sellable when the property was full.
+
+The cause was `find_bookings` returning `count: rows.length` under a
+`LIMIT 20`. There were 22 matching bookings, so the model was handed 20 with
+nothing to indicate truncation, and reasonably read a ceiling as a total. The
+denominator was wrong too: `allPhysicalRooms()` seeds its set with
+`MAINTENANCE_ONLY_ROOMS`, so N1102 - staff accommodation - was being counted
+as sellable inventory.
+
+Found with the tool-call trail added earlier the same day; the stored
+arguments and results made the truncation obvious in seconds. The same trail
+exposed a second wrong answer nobody had reported: asked which AC had gone
+longest without service, the assistant had called `list_maintenance` under a
+`LIMIT 40`, received exactly 40 of 180+ records, and then asserted that 15
+named units had never been serviced at all.
+
+- Both list tools now return `total` (the real count, from a separate
+  `COUNT(*)`), `returned`, and `truncated`, with limits raised to 100 and 200.
+  A capped list can no longer masquerade as a complete one.
+- New `get_occupancy` tool computes occupancy in SQL - bookable units,
+  occupied, vacant, and both percentages - so the model reports a figure
+  instead of doing arithmetic over rows it may not have fully received.
+  Bookings with no room assigned are surfaced separately rather than silently
+  inflating the vacancy count.
+- `MAINTENANCE_ONLY_ROOMS` is passed through from server.js and excluded from
+  both the vacancy list and the denominator; the system prompt now states that
+  N1102 is staff accommodation, that occupancy questions must use
+  `get_occupancy`, and that a truncated list must never support a conclusion
+  that something "has never happened".
+
+Verified end to end by asking the original question again through the full
+stack: "vacancy is 0% - all 22 bookable units are occupied (100% occupancy).
+N1102 is staff accommodation and excluded", via a single `get_occupancy` call,
+matching an independent uncapped SQL count unit for unit.
+
 ## Airbnb: short context-dependent replies go to a human (2026-09-13)
 
 The luggage fix above solves one exchange by remembering one fact. It does

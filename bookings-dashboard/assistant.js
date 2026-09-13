@@ -103,6 +103,14 @@ function toolDefs(rooms) {
       },
       []
     ),
+    strict(
+      'get_occupancy',
+      'How full the property is on a date: bookable units, occupied, vacant, and the percentages, already calculated. ' +
+        'Use this for ANY question about how many rooms are empty, free, available, or booked, and for any occupancy or ' +
+        'vacancy percentage. Never answer those by counting find_bookings rows.',
+      { date: { type: 'string', description: 'Date to check, YYYY-MM-DD. Defaults to today.' } },
+      []
+    ),
     strict('get_room_inventory', 'Appliance and room facts for one unit (AC brand, washer, TV, view).', { room: roomProp }, ['room']),
     strict(
       'propose_add_maintenance',
@@ -153,12 +161,19 @@ function runReadTool(ctx, name, input) {
       if (input.check_in) { where.push('check_in = ?'); params.push(input.check_in); }
       if (input.staying_on) { where.push('check_in <= ? AND check_out > ?'); params.push(input.staying_on, input.staying_on); }
       if (input.guest_name) { where.push('LOWER(guest_name) LIKE ?'); params.push(`%${String(input.guest_name).toLowerCase()}%`); }
+      // total is the REAL number of matches; the row list may be shorter.
+      // Returning only rows.length let a LIMIT be read as fact: asked how many
+      // rooms were empty, the model got count:20 from a 20-row cap, when 22
+      // units were occupied and none were free.
+      const total = db
+        .prepare(`SELECT COUNT(*) AS n FROM bookings WHERE ${where.join(' AND ')}`)
+        .get(...params).n;
       const rows = db.prepare(`
         SELECT booking_number, platform, guest_name, check_in, check_out, assigned_room, status, notes
         FROM bookings WHERE ${where.join(' AND ')}
-        ORDER BY check_out DESC LIMIT 20
+        ORDER BY check_out DESC LIMIT 100
       `).all(...params);
-      return { count: rows.length, bookings: rows };
+      return { total, returned: rows.length, truncated: total > rows.length, bookings: rows };
     }
 
     if (name === 'list_maintenance') {
@@ -168,12 +183,67 @@ function runReadTool(ctx, name, input) {
       if (input.from) { where.push('event_date >= ?'); params.push(input.from); }
       if (input.to) { where.push('event_date <= ?'); params.push(input.to); }
       if (input.status) { where.push('status = ?'); params.push(input.status); }
+      // Same truncation trap as find_bookings: a 40-row cap on 180+ records
+      // produced a confident "15 units have no AC service in the history at
+      // all", from a fraction of the history.
+      const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+      const total = db
+        .prepare(`SELECT COUNT(*) AS n FROM maintenance_records ${whereSql}`)
+        .get(...params).n;
       const rows = db.prepare(`
         SELECT id, room_number, event_date, category, description, status, notes
-        FROM maintenance_records ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-        ORDER BY event_date DESC, id DESC LIMIT 40
+        FROM maintenance_records ${whereSql}
+        ORDER BY event_date DESC, id DESC LIMIT 200
       `).all(...params);
-      return { count: rows.length, records: rows };
+      return { total, returned: rows.length, truncated: total > rows.length, records: rows };
+    }
+
+    if (name === 'get_occupancy') {
+      const date = isoDate(input.date) ? input.date : todayISO();
+
+      // Sellable inventory only. N1102 (and anything else in
+      // maintenanceOnlyRooms) is staff accommodation - never a vacancy, and
+      // never part of the denominator.
+      const excluded = new Set(ctx.maintenanceOnlyRooms || []);
+      const bookable = (ctx.rooms || []).filter((r) => !excluded.has(r));
+
+      const occupied = db
+        .prepare(`
+          SELECT DISTINCT assigned_room FROM bookings
+          WHERE status != 'cancelled' AND check_in <= ? AND check_out > ?
+            AND assigned_room IS NOT NULL AND assigned_room != ''
+        `)
+        .all(date, date)
+        .map((r) => r.assigned_room)
+        .filter((r) => !excluded.has(r));
+
+      const occupiedSet = new Set(occupied);
+      const vacant = bookable.filter((r) => !occupiedSet.has(r));
+
+      // A booking with no room assigned still fills a unit. Surfaced so the
+      // vacancy figure cannot quietly overstate what is actually sellable.
+      const unassigned = db
+        .prepare(`
+          SELECT COUNT(*) AS n FROM bookings
+          WHERE status != 'cancelled' AND check_in <= ? AND check_out > ?
+            AND (assigned_room IS NULL OR assigned_room = '')
+        `)
+        .get(date, date).n;
+
+      const pct = (n) => (bookable.length ? Math.round((n / bookable.length) * 1000) / 10 : 0);
+
+      return {
+        date,
+        bookable_units: bookable.length,
+        occupied_units: occupied.length,
+        vacant_units: vacant.length,
+        vacant_percent: pct(vacant.length),
+        occupancy_percent: pct(occupied.length),
+        vacant_rooms: vacant,
+        unassigned_bookings: unassigned,
+        excluded_rooms: [...excluded],
+        note: 'These figures are already calculated over the full data set. Report them as given - do not recount or recalculate.',
+      };
     }
 
     if (name === 'get_room_inventory') {
@@ -305,7 +375,7 @@ function executeProposal(ctx, proposal, username) {
 }
 
 // ---------------------------------------------------------------- system prompt
-function systemPrompt(rooms) {
+function systemPrompt(rooms, maintenanceOnly = []) {
   return `You are the operations assistant for Swiss Garden Residences by The Boston House, a short-stay apartment operation in Bukit Bintang, Kuala Lumpur. You help staff record things in the operations database by typing plain instructions.
 
 Today's date is ${todayISO()}. Interpret "today", "tomorrow" and "yesterday" against it, and always convert to YYYY-MM-DD.
@@ -316,6 +386,8 @@ You CANNOT change the database yourself. For any change you must call a propose_
 
 Rules:
 - Read first when the instruction refers to a booking ("N3001 checks out tomorrow at 2pm"): use find_bookings to identify the exact reservation before proposing a note. If more than one booking matches, ask which one instead of guessing.
+- Occupancy: for "how many rooms are empty / free / available / booked", or any occupancy or vacancy percentage, call get_occupancy and report the figures it returns. Do NOT work occupancy out by counting find_bookings rows.${maintenanceOnly.length ? ` ${maintenanceOnly.join(', ')} is staff accommodation, not sellable inventory - it is never a vacancy and never part of the total.` : ''}
+- Every list tool returns "total" (how many records actually match) alongside "returned" (how many you were given) and "truncated". If truncated is true you have NOT seen everything - say so, and never conclude that something does not exist ("no unit has ever had this done") from a truncated list.
 - An agreed late check-out time is recorded as a booking NOTE. You cannot change check-in/check-out dates or room assignment - if asked, say so plainly and offer to record it as a note.
 - Maintenance: if the instruction describes something that happened and is already handled, propose status "done"; if it still needs attention, propose "open".
 - Use the unit number exactly as listed. If the instruction names a unit you do not recognise, say so and list the closest matches.
@@ -380,7 +452,7 @@ async function handleMessage(ctx, { sessionId, username, message, history = [], 
       // than 'low': at low effort the model was the thing that previously
       // described a change without calling the propose_* tool.
       output_config: { effort: 'medium' },
-      system: systemPrompt(ctx.rooms),
+      system: systemPrompt(ctx.rooms, ctx.maintenanceOnlyRooms),
       tools,
       messages,
     });

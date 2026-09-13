@@ -328,7 +328,13 @@ app.post('/api/assistant/message', requireAuth, (req, res) => {
   const { message, history } = req.body || {};
   try {
     const { jobId, reused } = assistant.startJob(
-      { dbPath: DB_PATH, rooms: allPhysicalRooms() },
+      {
+        dbPath: DB_PATH,
+        rooms: allPhysicalRooms(),
+        // N1102 is staff accommodation, not sellable inventory. Without this
+        // the assistant counts it as a bookable unit and reports it as vacant.
+        maintenanceOnlyRooms: MAINTENANCE_ONLY_ROOMS,
+      },
       {
         sessionId: req.sessionID,
         username: req.session.user.username,
