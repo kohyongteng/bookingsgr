@@ -916,11 +916,12 @@ app.post('/api/send-checkout-report', requireAuth, (req, res) => {
     const now = new Date();
     const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const message = lib.composeCheckoutReport(db, todayIso);
-    // Both groups, matching the nightly 9PM send in detector.js - the button
-    // and the automatic send must not deliver to different places.
+    // "Boston Check In Out" only. Housekeeping is DELIBERATELY excluded here,
+    // unlike the nightly 9PM send in detector.js which does include them: this
+    // button is for ad-hoc re-sends, and housekeeping should not be pinged
+    // again with a list they already received. Do not "fix" this asymmetry.
     lib.writeOutboxMessage(lib.CHECKOUT_REPORT_GROUP_JID, message);
-    lib.writeOutboxMessage(lib.HOUSEKEEPING_GROUP_JID, message);
-    res.json({ status: 'ok', message, sentTo: ['check-in-out', 'housekeeping'] });
+    res.json({ status: 'ok', message, sentTo: ['check-in-out'] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
