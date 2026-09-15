@@ -19,10 +19,15 @@ const DEVICES_JSON_PATH = 'C:\\apps\\guest-passcode\\devices.json';
 
 // --- Fill in the real TTLock lockId for each unit below ---
 const SWITCHES = {
-  N1101: 34607752, // S8503_43c349
-  S2806: 34610066, // S8503_6f614a
-  N3001: 34605008, // S8503_89b61a
+  S2301: 34951712, // S8503_1d735e
+  N1901: 34951250, // S8503_97c5fc
 };
+
+// Previously switched with this script (already "ttlock" in devices.json, so
+// re-listing them here would simply be skipped):
+//   N1101: 34607752  // S8503_43c349
+//   S2806: 34610066  // S8503_6f614a
+//   N3001: 34605008  // S8503_89b61a
 
 const devices = JSON.parse(fs.readFileSync(DEVICES_JSON_PATH, 'utf8'));
 

@@ -137,6 +137,43 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## S2301 and N1901 door locks moved to TTLock (2026-09-15)
+
+Two Swiss Garden doors had their hardware changed from Tuya to TTLock, so
+`devices.json` needed the new lock identifiers.
+
+- S2301: tuya `a339029f9b767678d8f0iq` -> ttlock lockId **34951712**
+  (`S8503_1d735e`)
+- N1901: tuya `a31496bc3ed0b55bb5mlfi` -> ttlock lockId **34951250**
+  (`S8503_97c5fc`)
+
+Done with the existing `switch-to-ttlock.js`, which preserves `doorNumber` and
+`location` and skips any unit already on TTLock.
+
+Two things worth recording about how this was verified rather than assumed:
+
+- **The reported lock name did not exist.** The name given for S2301 was
+  `S8503_1d7353`; the account had `S8503_1d735e` - one character apart.
+  Writing a guessed lockId would program a guest's passcode into the wrong
+  physical door, so it was not treated as an obvious typo. `list-ttlock-locks.js`
+  showed 17 locks, 15 already claimed in devices.json, leaving exactly two
+  unallocated for exactly two doors changed that day, with one name matching
+  perfectly - and the owner then confirmed the typo directly.
+- **No guest was affected.** Both units had zero still-valid passcodes at the
+  time of the change (S2301: 2 historical records, N1901: 6, all expired), so
+  nobody lost access and no codes needed re-issuing. Had a code been live, the
+  hardware swap would already have killed it.
+
+The dashboard was restarted afterwards, and this is not optional:
+`server.js` requires the lock module at startup, which requires `devices.json`
+at ITS module load, and Node caches both for the life of the process. Without
+a restart the running dashboard keeps the old Tuya entries and issues codes to
+locks that no longer exist.
+
+Note that `devices.json` is deliberately untracked in git (runtime config, like
+`issued-codes.json` and `.env`), so there is no git history to revert to - a
+copy was taken before editing.
+
 ## Availability must count bookings, not assigned units (2026-09-14)
 
 The `get_occupancy` tool added yesterday counted occupied units as
