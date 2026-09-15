@@ -288,6 +288,30 @@ function openDb() {
     db.exec('ALTER TABLE assistant_log ADD COLUMN queries INTEGER');
   }
 
+  // Every Airbnb chat reply actually relayed to a guest (added 2026-09-15):
+  // what was proposed, what was really sent, and whether a staff member
+  // overrode the template with their own wording via "Send: ...".
+  //
+  // The overrides are the valuable part. A template that keeps being
+  // rewritten by hand is a template that needs rewriting, and until now that
+  // signal existed nowhere - the reply just went out and was forgotten.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS airbnb_reply_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_ref TEXT NOT NULL,
+      subject TEXT,
+      guest_name TEXT,
+      guest_text TEXT,
+      proposed_reply TEXT,
+      sent_reply TEXT NOT NULL,
+      was_override INTEGER NOT NULL DEFAULT 0,
+      sent_by TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_airbnb_reply_log_created ON airbnb_reply_log(created_at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_airbnb_reply_log_override ON airbnb_reply_log(was_override)');
+
   // Per-room appliance/room facts (added 2026-09-12), imported from the
   // SWISS_GARDEN workbook's "room overview" lines ("AC living - Daikin").
   // Separate from maintenance_records because these are undated standing facts,

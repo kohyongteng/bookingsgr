@@ -137,6 +137,56 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## Staff can answer an Airbnb guest in their own words (2026-09-15)
+
+Until now the staff group could only approve a proposed reply verbatim
+("Proceed") or ignore it. If the proposal was nearly right, there was no way
+to correct it without leaving WhatsApp.
+
+Quote the proposal and type `Send: We do not provide breakfast ya` and that
+text is relayed to the guest directly - one message, no second confirmation.
+
+- `parseStaffCommand` (exported from handler.js) decides between approve,
+  custom, and do-nothing. It was pulled out of the handler closure
+  deliberately: these rules decide what reaches a real guest, and they must
+  be testable rather than trusted.
+- **Why a marker rather than "any quoted reply".** Ordinary chatter quoting a
+  proposal would otherwise be relayed. This is not hypothetical - "No need.
+  Human already reply" was really sent in that group, and under a bare rule
+  the guest would have received it. It is a test case now.
+- **"proceed" now matches as a prefix**, not exactly. Previously only the
+  exact word approved; with custom replies added, "Proceed 👍" or "proceed
+  thanks" would have stopped approving and been sent to the guest as literal
+  text - a near-miss of the approval word turning into a message.
+- Any number in the group may approve or answer, including the bot's own
+  linked number (three people share that WhatsApp). Messages the bot itself
+  sent are still excluded, so it can never answer its own proposal.
+- Custom text reaches the guest **verbatim, with no " (bot)" suffix**, since a
+  human wrote it.
+
+Both outcomes are now recorded in a new `airbnb_reply_log` table: what was
+proposed, what was actually sent, whether it was an override, and who sent it.
+The overrides are the point - a template that keeps being rewritten by hand is
+a template that needs rewriting, and that signal previously existed nowhere.
+
+The group also now gets a one-line confirmation after a send, and - more
+importantly - a warning when a reply was NOT sent because someone had already
+answered the guest. A silent non-send was tolerable for "Proceed"; someone who
+types out their own sentence would otherwise never learn it did not arrive.
+
+Verified before deploying: 30 parsing cases covering every `Send:` form, every
+`proceed` near-miss, and real staff chatter, with two whole-set assertions -
+that no unmarked chatter can become guest-facing text, and that no "proceed"
+variant is ever sent as text. The cross-project file contract (`ref`,
+`customText`, `sentBy`) is asserted in both directions, since the two projects
+agree on that file's shape only by convention.
+
+Known gap, not addressed here: `airbnb-pending-approvals.json` holds 37
+proposals with no expiry, some weeks old. A `[ref: ...]` never goes stale, so
+scrolling back and answering an old proposal would send to a guest whose stay
+has long finished. The existing staleness check only catches "someone already
+replied", not "this proposal is ancient".
+
 ## Cash-box video added to the luggage storage template (2026-09-15)
 
 The luggage-storage confirmation asks the guest to put RM30 in the cash box

@@ -36,6 +36,36 @@ function extractQuotedText(msg) {
   );
 }
 
+/**
+ * What a staff message in the staff group is asking for.
+ *
+ *   { kind: 'approve' }                     - send the proposed template
+ *   { kind: 'custom', text: '...' }         - send this wording instead
+ *   { kind: 'none' }                        - ordinary chatter, do nothing
+ *
+ * Exported so the rules can be tested directly. They gate what reaches a real
+ * guest, and the dangerous case is silent: treating chatter as a reply would
+ * relay "No need, human already reply" to the guest with no confirmation step.
+ *
+ * "proceed" matches as a PREFIX, so "Proceed 👍" or "proceed thanks" still
+ * approve rather than being sent to the guest as literal text.
+ */
+export function parseStaffCommand(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return { kind: 'none' };
+
+  if (/^proceed\b/i.test(trimmed)) return { kind: 'approve' };
+
+  const sendMatch = trimmed.match(/^send\s*:\s*([\s\S]+)$/i);
+  if (sendMatch) {
+    const body = sendMatch[1].trim();
+    // "Send:" with nothing after it is a slip, not an empty message to a guest.
+    return body ? { kind: 'custom', text: body } : { kind: 'none' };
+  }
+
+  return { kind: 'none' };
+}
+
 export function createHandler(sock) {
   const sender = createSender(sock);
   const scheduler = new DelayedReplyScheduler(config.replyDelayMs);
@@ -326,20 +356,39 @@ export function createHandler(sock) {
     if (isGroupJid(jid)) {
       if (jid === config.staffGroupJid) {
         const groupText = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
-        if (/^proceed$/i.test(groupText.trim())) {
+        // Rules live in parseStaffCommand above rather than inline here, so
+        // they can be tested directly - they decide what reaches a real guest
+        // and must not sit untestable inside this closure.
+        const command = parseStaffCommand(groupText);
+        const customText = command.kind === 'custom' ? command.text : null;
+
+        if (command.kind !== 'none') {
           const quotedText = extractQuotedText(msg);
           const refMatch = quotedText?.match(/\[ref:\s*([a-zA-Z0-9]+)\]/);
           if (refMatch) {
             const ref = refMatch[1];
+            // Any number in the group may do this, including the bot's own
+            // linked number (three people share that WhatsApp). Messages the
+            // bot itself sent are excluded upstream, so it can never approve
+            // or answer its own proposal.
+            const senderJid = msg.key.participant || jid;
+            const sentBy = formatSenderLabel(msg.pushName, jidToE164(senderJid));
+
             if (!fs.existsSync(AIRBNB_APPROVALS_DIR)) fs.mkdirSync(AIRBNB_APPROVALS_DIR, { recursive: true });
             fs.writeFileSync(
               path.join(AIRBNB_APPROVALS_DIR, `approval-${Date.now()}.json`),
-              JSON.stringify({ ref, approvedAt: new Date().toISOString() }),
+              JSON.stringify({ ref, approvedAt: new Date().toISOString(), customText, sentBy }),
               'utf8'
             );
-            console.log(`[handler] Airbnb reply approved by staff: ref ${ref}`);
+            console.log(
+              customText
+                ? `[handler] Airbnb CUSTOM reply from ${sentBy} for ref ${ref}: ${JSON.stringify(customText.slice(0, 120))}`
+                : `[handler] Airbnb reply approved by ${sentBy}: ref ${ref}`
+            );
           } else {
-            console.log('[handler] staff sent "Proceed" in staff group but no [ref: ...] found in the quoted message - ignoring');
+            console.log(
+              `[handler] staff sent "${customText ? 'Send:' : 'Proceed'}" in the staff group but the quoted message has no [ref: ...] - ignoring`
+            );
           }
         }
       }

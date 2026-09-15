@@ -555,7 +555,9 @@ async function checkAndSendApprovedAirbnbReplies() {
   for (const file of files) {
     const fullPath = path.join(APPROVALS_DIR, file);
     try {
-      const { ref } = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+      // customText is set when a staff member answered with their own wording
+      // ("Send: ...") instead of approving the proposed template.
+      const { ref, customText, sentBy } = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
       const pending = pendingApprovals[ref];
 
       if (!pending) {
@@ -568,20 +570,73 @@ async function checkAndSendApprovedAirbnbReplies() {
       const { data: thread } = await gmail.users.threads.get({ userId: 'me', id: ref, format: 'full' });
       if (hasSentMessageAfter(thread, pending.lastKnownInternalDate)) {
         console.log(`[${now.toISOString()}] Airbnb approval for ${ref} is stale (staff already replied via Gmail) - skipping send.`);
+        // Said out loud rather than only logged. A silent non-send was
+        // tolerable for "Proceed", but someone who typed out their own reply
+        // would otherwise never learn the guest did not receive it.
+        lib.writeOutboxMessage(
+          lib.STAFF_GROUP_JID,
+          `⚠️ NOT sent for ${pending.subject || ref} - someone had already replied to this guest, ` +
+            `so nothing was sent.${customText ? ' Your message was not delivered.' : ''}`
+        );
         delete pendingApprovals[ref];
         saveJson(PENDING_APPROVALS_PATH, pendingApprovals);
         fs.unlinkSync(fullPath);
         continue;
       }
 
+      // A staff member's own wording replaces the proposed template and goes
+      // to the guest VERBATIM - no " (bot)" suffix, because a human wrote it.
+      const body = customText || pending.replyBody;
+      const isOverride = Boolean(customText);
+
       await lib.sendThreadedReply(gmail, {
         threadId: ref,
         to: pending.to,
         inReplyTo: pending.inReplyTo,
         subject: pending.subject,
-        body: pending.replyBody,
+        body,
       });
-      console.log(`[${now.toISOString()}] Airbnb reply sent for thread ${ref} (approved by staff).`);
+      console.log(
+        `[${now.toISOString()}] Airbnb reply sent for thread ${ref} ` +
+        `(${isOverride ? `CUSTOM reply from ${sentBy || 'staff'}` : 'approved template'}).`
+      );
+
+      // Recorded so "what did we actually tell this guest" is answerable
+      // afterwards, and so overrides can be counted. Opened per send rather
+      // than per cycle because this runs a handful of times a day.
+      try {
+        const db = lib.openDb();
+        try {
+          db.prepare(`
+            INSERT INTO airbnb_reply_log
+              (thread_ref, subject, guest_name, guest_text, proposed_reply, sent_reply,
+               was_override, sent_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          `).run(
+            ref,
+            pending.subject || null,
+            pending.guestName || null,
+            pending.guestText || null,
+            pending.replyBody || null,
+            body,
+            isOverride ? 1 : 0,
+            sentBy || null
+          );
+        } finally {
+          db.close();
+        }
+      } catch (err) {
+        // Logging must never undo a send that has already happened.
+        console.error(`[${now.toISOString()}] could not write airbnb_reply_log:`, err.message);
+      }
+
+      // Confirmed back to the group: without this, typing "Send: ..." gives no
+      // sign it actually reached the guest.
+      lib.writeOutboxMessage(
+        lib.STAFF_GROUP_JID,
+        `✅ Sent to ${pending.guestName || 'guest'} (${pending.subject || ref})` +
+          (isOverride ? ' - your own wording.' : ' - approved template.')
+      );
 
       // The confirmation window opens only NOW, when the ask has actually
       // reached the guest. Arming it at proposal time would arm it even for
