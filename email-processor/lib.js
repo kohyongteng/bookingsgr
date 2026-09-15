@@ -686,6 +686,48 @@ async function sendAlertEmail(gmail, to, subject, body) {
   await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
 }
 
+// Kept distinct from createRawEmail above, which must stay plain-text-only for
+// admin alerts. This builds a multipart/mixed message so a file can be
+// attached - used by backup-offsite.js to mail the nightly backup zip to
+// yourself, which needs no scope beyond the gmail.send the detector already
+// has. Gmail rejects attachments over 25 MB; the caller checks the size first.
+function createRawEmailWithAttachment({ to, subject, body, filename, contentType, data }) {
+  const boundary = `----=_Part_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  // Base64 inside a MIME part must be line-wrapped; some servers reject a
+  // single multi-megabyte line.
+  const encoded = data.toString('base64').replace(/(.{76})/g, '$1\r\n');
+  const str = [
+    `To: ${to}`,
+    'MIME-Version: 1.0',
+    `Subject: ${subject}`,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    '',
+    body,
+    '',
+    `--${boundary}`,
+    `Content-Type: ${contentType}; name="${filename}"`,
+    'Content-Transfer-Encoding: base64',
+    `Content-Disposition: attachment; filename="${filename}"`,
+    '',
+    encoded,
+    '',
+    `--${boundary}--`,
+    '',
+  ].join('\r\n');
+  return Buffer.from(str).toString('base64url');
+}
+
+async function sendEmailWithAttachment(
+  gmail,
+  { to, subject, body, filename, contentType = 'application/zip', data }
+) {
+  const raw = createRawEmailWithAttachment({ to, subject, body, filename, contentType, data });
+  await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+}
+
 // Kept distinct from createRawEmail/sendAlertEmail above (those must stay
 // new-thread-only for admin alerts). This one replies WITHIN an existing
 // Gmail thread - required for a reply to actually relay into an Airbnb
@@ -1325,6 +1367,7 @@ module.exports = {
   sleep,
   scrape,
   sendAlertEmail,
+  sendEmailWithAttachment,
   sendThreadedReply,
   formatGmailDate,
   toLocalISODate,

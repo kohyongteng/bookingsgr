@@ -137,6 +137,71 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## Daily off-site backup, emailed to yourself (2026-09-16)
+
+`backup-full.js` was sound but manual, and had run exactly once - 30 August.
+Everything built since then existed in only one place: the September financial
+backfill, 182 maintenance records, `assistant_log`, `airbnb_reply_log`, the
+TTLock changes, and the live `bookings.db`. A disk failure would have rolled
+the data back six weeks while the code sat safe on GitHub.
+
+- New `email-processor/backup-offsite.js` runs `backup-full.js`, then gets the
+  zip off the machine.
+- **Default is email to yourself, because it needs no new authorisation** - the
+  existing token already has `gmail.send`. Drive would have required a fresh
+  OAuth consent in a browser on the mini PC, which is the one step that cannot
+  be automated from here. New `lib.sendEmailWithAttachment` builds the
+  multipart message, kept separate from `createRawEmail`/`sendAlertEmail`,
+  which must stay plain-text for admin alerts.
+- Each run is a new message, so copies accumulate (~4 MB a day) - which is also
+  the safety net: a corrupt backup cannot overwrite a good one. Auto-deleting
+  old backup mail would need a `gmail.modify` scope this token does not have,
+  so clear them out by hand occasionally. Gmail caps attachments at 25 MB, and
+  the script refuses above ~18 MB rather than failing halfway, since base64
+  adds about a third.
+- `--drive` remains available and updates ONE file, so Drive keeps ~30 days of
+  its own revisions. It needs a one-off consent, kept in its own
+  `token_drive.json` via a new `--scopes=drive` flag on `authorize.js` -
+  deliberately NOT added to the default scope set, because re-consenting the
+  default account overwrites `token.json`, which the live detector depends on
+  for Gmail and Calendar.
+- Failures announce themselves in the staff group. A backup that silently
+  stops is worse than none, because you believe you are covered.
+- Delivered size is verified against the local zip, and a suspiciously small
+  zip is refused rather than sent as though it were good.
+
+Two things caught before they did damage:
+
+- **Local pruning would have deleted the only existing backup.** Removing zips
+  older than 7 days meant the 30 August zip - the sole copy on the machine -
+  was deleted on the first run. The newest few are now always kept regardless
+  of age.
+- **`token_drive.json` would have been committed.** `.gitignore` lists token
+  files individually rather than by pattern, so a new one is not covered by
+  default. Added before the consent that creates it, not after.
+
+Verified end to end rather than assumed. A real run produced a 3.9 MB zip from
+all seven folders in about three and a half minutes and emailed it - and then
+the attachment Gmail had actually stored was downloaded back out and confirmed
+**byte-identical** to the local zip, starting with the `PK\x03\x04` zip
+signature. That distinction is the point: `messages.send` resolving proves only
+that Gmail accepted the request, not that the stored attachment is openable,
+and a backup that looks delivered but arrives truncated is worse than none
+because you believe you are covered. Local pruning also behaved - three zips
+remain, including the 30 August one.
+
+Scheduled as `SwissGardenBackup`, daily at 04:00, and only after that delivery
+was proven restorable. It runs **non-elevated** (an elevated scheduled task is
+what broke pm2 earlier this month) with an explicit working directory, since
+the script loads `.env` relative to the current directory and a task launched
+from `System32` would silently miss it. "Start when available" is set, so a run
+missed because the machine was off happens at the next opportunity instead of
+being skipped entirely.
+
+Known limitation, unchanged from the original script: `bookings.db` is copied
+with robocopy while services are writing to it, so a restore could hit a torn
+copy. A SQLite-aware snapshot (`VACUUM INTO`) would fix that.
+
 ## Reply proposals now expire after 24 hours (2026-09-15)
 
 `airbnb-pending-approvals.json` had no expiry and had grown to 37 proposals,

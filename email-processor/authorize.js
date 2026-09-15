@@ -8,11 +8,38 @@ const CREDENTIALS_PATH = path.join(__dirname, 'credentials.json');
 const PORT = 3005;
 const REDIRECT_URI = `http://localhost:${PORT}/oauth2callback`;
 
+// Default scopes - what the detector has always needed. Unchanged, so
+// "node authorize.js" and "--account=airbnb" behave exactly as before.
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/calendar',
 ];
+
+// Named scope sets, selected with --scopes=<name>.
+//
+// "drive" is deliberately drive.FILE, not full Drive access: it can only touch
+// files this app itself created, so the backup uploader can never read or
+// modify anything else in the Drive. It is also kept in its own token file
+// (--account=drive) rather than added to the default set - re-consenting the
+// default account would overwrite token.json, which the live detector depends
+// on for Gmail and Calendar.
+const SCOPE_SETS = {
+  default: SCOPES,
+  drive: ['https://www.googleapis.com/auth/drive.file'],
+};
+
+function getScopes() {
+  const arg = process.argv.find((a) => a.startsWith('--scopes='));
+  const name = arg ? arg.split('=')[1] : 'default';
+  const scopes = SCOPE_SETS[name];
+  if (!scopes) {
+    throw new Error(
+      `Unknown --scopes=${name}. Available: ${Object.keys(SCOPE_SETS).join(', ')}`
+    );
+  }
+  return scopes;
+}
 
 function getAccountArg() {
   const arg = process.argv.find((a) => a.startsWith('--account='));
@@ -35,11 +62,13 @@ async function main() {
   const creds = loadCredentials();
   const oAuth2Client = new google.auth.OAuth2(creds.client_id, creds.client_secret, REDIRECT_URI);
 
+  const scopes = getScopes();
   const authUrl = oAuth2Client.generateAuthUrl({
     access_type: 'offline',
-    scope: SCOPES,
+    scope: scopes,
     prompt: 'consent',
   });
+  console.log(`Scopes requested: ${scopes.join(', ')}`);
 
   console.log(`\nAuthorizing account: ${account}`);
   console.log(`Token will be saved to: ${tokenPath}\n`);

@@ -7,6 +7,10 @@
 email-processor/credentials.json
 email-processor/token.json
 email-processor/token_airbnb.json
+# Listed individually above rather than by pattern, so a NEW token file is not
+# ignored by default - token_drive.json (the backup uploader's Drive consent)
+# would otherwise have been committed the moment it was created.
+email-processor/token_drive.json
 
 # --- Live session / device-tied state (not portable, re-auth instead) ---
 whatsapp-bot/auth_info_baileys/
@@ -33,6 +37,7 @@ email-processor/checkout_report_last_sent.json
 email-processor/airbnb-chat-reply-state.json
 email-processor/airbnb-pending-approvals.json
 email-processor/airbnb-chat-reply-last-scan.json
+email-processor/backup-drive-state.json
 
 # --- One-off debug dumps from past troubleshooting (may contain real guest PII) ---
 email-processor/*.log
