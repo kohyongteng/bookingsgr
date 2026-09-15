@@ -31,6 +31,12 @@ const LAST_SCAN_PATH = path.join(__dirname, 'airbnb-chat-reply-last-scan.json');
 const APPROVALS_DIR = 'C:\\apps\\shared-data\\airbnb-approvals';
 const SCAN_OVERLAP_SEC = 60; // re-check the last minute of the previous window too, in case a message landed right at the boundary
 
+// How long a reply proposal stays answerable. A "[ref: ...]" sitting in
+// WhatsApp never visibly expires, so without this someone could scroll back
+// weeks and answer a proposal for a guest who checked out long ago - and with
+// "Send: ..." that would deliver a freshly typed message to the wrong stay.
+const PENDING_APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
+
 function loadJson(filePath, fallback) {
   if (!fs.existsSync(filePath)) return fallback;
   try {
@@ -42,6 +48,27 @@ function loadJson(filePath, fallback) {
 
 function saveJson(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+}
+
+/**
+ * Drops reply proposals older than PENDING_APPROVAL_TTL_MS. Mutates the object
+ * and returns how many were removed, so the caller decides whether to write
+ * the file back.
+ *
+ * An entry with no usable createdAt is treated as EXPIRED rather than kept:
+ * such a row predates the field and cannot be aged, and keeping an
+ * indefinitely-answerable proposal is the exact failure this prevents.
+ */
+function prunePendingApprovals(pendingApprovals, now = new Date()) {
+  let removed = 0;
+  for (const [ref, entry] of Object.entries(pendingApprovals)) {
+    const created = entry && entry.createdAt ? new Date(entry.createdAt).getTime() : NaN;
+    if (Number.isNaN(created) || now.getTime() - created > PENDING_APPROVAL_TTL_MS) {
+      delete pendingApprovals[ref];
+      removed++;
+    }
+  }
+  return removed;
 }
 
 // ---------- Digest body parsing ----------
@@ -198,6 +225,16 @@ async function runAirbnbChatReplyCycle() {
   const now = new Date();
   const state = loadJson(STATE_PATH, {});
   const pendingApprovals = loadJson(PENDING_APPROVALS_PATH, {});
+  // Expire stale proposals on every scan, so a "[ref: ...]" cannot be answered
+  // days later. Logged as a count rather than announced per entry - the first
+  // run clears a long backlog and would otherwise flood the staff group.
+  const expiredOnScan = prunePendingApprovals(pendingApprovals, now);
+  if (expiredOnScan > 0) {
+    saveJson(PENDING_APPROVALS_PATH, pendingApprovals);
+    console.log(
+      `[${now.toISOString()}] Expired ${expiredOnScan} Airbnb reply proposal(s) older than 24h.`
+    );
+  }
   const gmail = lib.getGmailClient('airbnb');
   const db = lib.openDb();
 
@@ -550,6 +587,12 @@ async function checkAndSendApprovedAirbnbReplies() {
   if (files.length === 0) return;
 
   const pendingApprovals = loadJson(PENDING_APPROVALS_PATH, {});
+  // Expire here too, not only on the scan cycle. The scan runs every 5
+  // minutes, so an approval can arrive for a proposal that is already past the
+  // TTL but not yet pruned - checking at the moment of sending closes that gap.
+  if (prunePendingApprovals(pendingApprovals, now) > 0) {
+    saveJson(PENDING_APPROVALS_PATH, pendingApprovals);
+  }
   const gmail = lib.getGmailClient('airbnb');
 
   for (const file of files) {
@@ -562,6 +605,14 @@ async function checkAndSendApprovedAirbnbReplies() {
 
       if (!pending) {
         console.log(`[${now.toISOString()}] Airbnb approval for unknown/expired ref ${ref} - ignoring.`);
+        // Said out loud rather than only logged. Someone who just typed a
+        // reply on an old proposal would otherwise get complete silence and
+        // assume the guest received it.
+        lib.writeOutboxMessage(
+          lib.STAFF_GROUP_JID,
+          `⚠️ Nothing sent - that reply proposal has expired (older than 24 hours) ` +
+            `and can no longer be answered.${customText ? ' Your message was NOT delivered.' : ''}`
+        );
         fs.unlinkSync(fullPath);
         continue;
       }
@@ -669,4 +720,6 @@ module.exports = {
   parseSubjectDates,
   isLuggageConfirmation,
   isContextDependent,
+  prunePendingApprovals,
+  PENDING_APPROVAL_TTL_MS,
 };

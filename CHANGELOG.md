@@ -137,6 +137,39 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## Reply proposals now expire after 24 hours (2026-09-15)
+
+`airbnb-pending-approvals.json` had no expiry and had grown to 37 proposals,
+some weeks old. A "[ref: ...]" sitting in WhatsApp never visibly goes stale,
+so scrolling back and answering an old proposal would relay a reply to a guest
+whose stay finished long ago. The existing check only caught "someone already
+replied to this guest" - never "this proposal is ancient".
+
+That mattered more once staff could answer in their own words: approving a
+weeks-old template is odd, but delivering a freshly typed sentence to the
+wrong stay is worse.
+
+- Proposals older than 24 hours are dropped, on every scan cycle AND again
+  inside the approval path. The second check is not redundant: the scan runs
+  every five minutes, so an approval can arrive for a proposal already past
+  the TTL but not yet pruned.
+- An entry with a missing or unparseable `createdAt` is treated as expired
+  rather than kept. It cannot be aged, and an indefinitely-answerable proposal
+  is precisely what this prevents.
+- Answering an expired proposal now says so in the group, and states plainly
+  when a typed message was NOT delivered. Silence would be the same trap this
+  was meant to close.
+- The first run's bulk deletion is logged as a count, not announced per entry -
+  clearing a long backlog would otherwise flood the staff group.
+
+Verified by dry-running the prune against a copy of the real file before the
+detector touched it: 24 of 37 deleted, 13 kept, the oldest survivor 15.4 hours
+old. Asserted in both directions - nothing kept older than the TTL, nothing
+deleted younger - plus six synthetic edge cases (1h and 23.5h kept; 24.5h, 3
+weeks, missing createdAt and garbage createdAt removed), and a check that the
+dry run left the file on disk untouched. A copy was taken first, since this
+file is untracked runtime state with no git history to revert to.
+
 ## Staff can answer an Airbnb guest in their own words (2026-09-15)
 
 Until now the staff group could only approve a proposed reply verbatim
