@@ -137,6 +137,27 @@ real traffic to surface:
   troubleshooting. The template's match condition only covered "arriving
   early"; broadened to cover sharing a QR for lobby access.
 
+## Cash-box video added to the luggage storage template (2026-09-15)
+
+The luggage-storage confirmation asks the guest to put RM30 in the cash box
+and send a video as proof. A link showing the cash box now follows that line,
+on its own line so it stays tappable.
+
+Applied to BOTH `whatsapp-bot/src/templates.js` and
+`email-processor/airbnbTemplates.js`. This is guest-facing wording rather than
+classifier logic, so the two channels must say the same thing - unlike the
+check-out/ID matching rules, which are deliberately divergent because only the
+Airbnb path has stay-phase context.
+
+Verified by extracting the literal from each file and comparing: both are 864
+characters and byte-identical, with the link on its own line in each. The two
+files are maintained separately (ESM vs CommonJS), so silent drift between
+them is the failure worth guarding against - a guest on Airbnb receiving
+different instructions from a guest on WhatsApp.
+
+Both services were restarted: each caches its template module at load, so the
+new wording would otherwise not reach guests.
+
 ## S2301 and N1901 door locks moved to TTLock (2026-09-15)
 
 Two Swiss Garden doors had their hardware changed from Tuya to TTLock, so

@@ -320,6 +320,8 @@ https://drive.google.com/drive/folders/18gke67ZHkkTh6RIlMcjc8Z3eBFgwZqSj
 
 • Please use the colored ribbons provided on the table to tie your luggage handles together to avoid any mix-up.
 
-• The luggage storage fee is RM30. Kindly place the cash into the cash box, take a short video as proof, and send it to us. Thank you. 🙏
+• The luggage storage fee is RM30. Kindly place the cash into the cash box, take a short video as proof, and send it to us.
+https://youtube.com/shorts/Ibn6WG47iJc?si=ur48is8wX-CbW7zO
+Thank you. 🙏
 
 We will send you the QR code for the South Tower Level 12 storeroom shortly.`;
